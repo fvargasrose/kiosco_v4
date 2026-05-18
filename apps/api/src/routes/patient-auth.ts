@@ -227,6 +227,11 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
+    logger.info(
+      { hasToken: !!dentalinkToken, tokenLen: dentalinkToken?.length ?? 0 },
+      'DEBUG decrypt result',
+    );
+
     // 7. Lookup del paciente (servidor-side, sin descargar lista al cliente)
     const patient = await dentalink.lookupPatientByCedula(cedula, dentalinkToken);
 

@@ -55,6 +55,15 @@ export interface DentalinkDentist {
   id_sucursal: number;
 }
 
+// Dentalink devuelve celular sin prefijo país (ej: "3206505239").
+// El frontend siempre envía "+57XXXXXXXXXX". Normalizamos al leer.
+function normalizeCelular(celular: string): string {
+  if (!celular) return celular;
+  if (celular.startsWith('+')) return celular;
+  if (/^3\d{9}$/.test(celular)) return `+57${celular}`;
+  return celular;
+}
+
 const CACHE_TTL_PATIENT_LOOKUP = 60;
 const CACHE_TTL_APPOINTMENTS = 30;
 const CACHE_TTL_TREATMENTS = 60;
@@ -245,8 +254,14 @@ class DentalinkClient {
       return cached;
     }
 
+    logger.info(
+      { cedula: maskCedula(cedula), hasToken: !!dentalinkToken, mock: isMockMode(dentalinkToken) },
+      'DL lookup start',
+    );
+
     if (isMockMode(dentalinkToken)) {
       const found = MOCK_PATIENTS.find((p) => p.rut === cedula) ?? null;
+      logger.info({ cedula: maskCedula(cedula), found: !!found }, 'DL lookup mock result');
       await setCached(cacheKey, found ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
       return found;
     }
@@ -258,10 +273,16 @@ class DentalinkClient {
         dentalinkToken!,
         { q: filter },
       );
-      const patient = data.data?.[0] ?? null;
+      const raw = data.data?.[0] ?? null;
+      logger.info(
+        { cedula: maskCedula(cedula), apiFound: !!raw, celular: raw?.celular ?? null },
+        'DL lookup API result',
+      );
+      const patient = raw ? { ...raw, celular: normalizeCelular(raw.celular) } : null;
       await setCached(cacheKey, patient ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
       return patient;
     } catch (err) {
+      logger.error({ err, cedula: maskCedula(cedula) }, 'DL lookup API error');
       if (err instanceof DentalinkError && err.code === 'NOT_FOUND') {
         await setCached(cacheKey, { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
         return null;

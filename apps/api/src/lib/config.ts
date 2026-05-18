@@ -10,6 +10,16 @@
 
 import { z } from 'zod';
 
+// z.coerce.boolean() usa Boolean("false") === true, lo cual es incorrecto para env vars.
+// Este helper convierte los strings "true"/"false" al booleano correcto.
+const boolEnv = (defaultVal: boolean) =>
+  z
+    .preprocess(
+      (v) => (v === 'true' ? true : v === 'false' ? false : v),
+      z.boolean(),
+    )
+    .default(defaultVal);
+
 const ConfigSchema = z.object({
   // -------- Identificación --------
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
@@ -54,7 +64,7 @@ const ConfigSchema = z.object({
   LICENSE_HEARTBEAT_INTERVAL_HOURS: z.coerce.number().int().positive().default(6),
   LICENSE_GRACE_PERIOD_DAYS: z.coerce.number().int().positive().default(7),
   LICENSE_SHUTDOWN_PERIOD_DAYS: z.coerce.number().int().positive().default(14),
-  LICENSE_DEV_MODE: z.coerce.boolean().default(false),
+  LICENSE_DEV_MODE: boolEnv(false),
 
   // -------- Servicios externos (opcionales en dev) --------
   WOMPI_PUBLIC_KEY: z.string().optional(),
@@ -84,8 +94,8 @@ const ConfigSchema = z.object({
   HABEAS_DATA_POLICY_VERSION: z.string().default('v1.0'),
 
   // -------- Dev helpers --------
-  DEV_MOCK_EXTERNAL_SERVICES: z.coerce.boolean().default(false),
-  DEV_LOG_OTP: z.coerce.boolean().default(false),
+  DEV_MOCK_EXTERNAL_SERVICES: boolEnv(false),
+  DEV_LOG_OTP: boolEnv(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
