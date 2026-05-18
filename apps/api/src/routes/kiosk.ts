@@ -1,0 +1,147 @@
+/**
+ * =============================================================================
+ * Routes: /kiosk/* (kiosco autenticado con kiosk_token)
+ * =============================================================================
+ *
+ * Estos endpoints son consumidos por el frontend del kiosco al arrancar
+ * y periódicamente para refrescar configuración.
+ *
+ * El kiosco no almacena configuración localmente — siempre la lee del backend.
+ * Esto permite que cambios desde el admin web aparezcan en el kiosco al
+ * siguiente refresh (sin necesidad de reiniciar el kiosco).
+ */
+
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { db } from '../lib/db.js';
+import { verifyKioskToken, type KioskClaims } from '../lib/jwt.js';
+import { audit } from '../lib/audit.js';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    kiosk?: KioskClaims;
+  }
+}
+
+function extractBearer(authHeader: string | undefined): string | null {
+  if (!authHeader) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  return match ? match[1]! : null;
+}
+
+async function requireKiosk(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const token = extractBearer(request.headers.authorization);
+  if (!token) {
+    return reply.code(401).send({ error: 'KIOSK_TOKEN_REQUIRED' });
+  }
+
+  let claims: KioskClaims;
+  try {
+    claims = await verifyKioskToken(token);
+  } catch {
+    await audit({
+      actorType: 'system',
+      action: 'kiosk.invalid_token',
+      result: 'denied',
+      ip: request.ip,
+    });
+    return reply.code(401).send({ error: 'INVALID_KIOSK_TOKEN' });
+  }
+
+  // Verificar que el kiosco esté activo
+  const result = await db.query<{ is_active: boolean }>(
+    `SELECT is_active FROM kiosks WHERE id = $1`,
+    [claims.sub],
+  );
+  if (!result.rows[0]?.is_active) {
+    return reply.code(403).send({ error: 'KIOSK_INACTIVE' });
+  }
+
+  request.kiosk = claims;
+}
+
+export async function kioskRoutes(app: FastifyInstance): Promise<void> {
+  /**
+   * GET /kiosk/bootstrap
+   *
+   * Devuelve toda la configuración que el frontend del kiosco necesita:
+   *   - Datos de la clínica (nombre, logo)
+   *   - Política Habeas Data (texto + hash + versión)
+   *   - Procedimientos disponibles
+   *   - FAQ
+   *   - Configuración WhatsApp asistente
+   *   - ID del kiosco (para logging client-side)
+   *
+   * NUNCA expone tokens ni datos sensibles.
+   */
+  app.get('/kiosk/bootstrap', { preHandler: requireKiosk }, async (request, reply) => {
+    const kiosk = request.kiosk!;
+
+    // Actualizar last_seen_at del kiosco (telemetría)
+    await db.query(
+      `UPDATE kiosks
+       SET last_seen_at = now(),
+           last_ip = $1,
+           last_user_agent = $2
+       WHERE id = $3`,
+      [request.ip, request.headers['user-agent'] ?? null, kiosk.sub],
+    );
+
+    // Cargar config de la clínica (solo campos públicos)
+    const clinicResult = await db.query<{
+      display_name: string;
+      logo_path: string | null;
+      habeas_data_policy_text: string | null;
+      habeas_data_policy_version: string;
+      habeas_data_policy_hash: string | null;
+      procedures: Array<{ name: string; duration: number; description?: string }>;
+      faq: Array<{ question: string; answer: string }>;
+      whatsapp_number: string | null;
+      whatsapp_welcome_message: string | null;
+      duracion_cita_minutos: number;
+    }>(`
+      SELECT display_name, logo_path,
+             habeas_data_policy_text, habeas_data_policy_version, habeas_data_policy_hash,
+             procedures, faq,
+             whatsapp_number, whatsapp_welcome_message,
+             duracion_cita_minutos
+      FROM clinic WHERE id = 1
+    `);
+
+    const clinic = clinicResult.rows[0];
+    if (!clinic) {
+      return reply.code(503).send({
+        error: 'NOT_CONFIGURED',
+        message: 'La clínica aún no ha sido configurada. Contacte al administrador.',
+      });
+    }
+
+    return reply.send({
+      kiosk: {
+        id: kiosk.sub,
+        name: kiosk.kiosk_name,
+      },
+      clinic: {
+        display_name: clinic.display_name,
+        logo_path: clinic.logo_path,
+      },
+      habeas_data: {
+        version: clinic.habeas_data_policy_version,
+        hash: clinic.habeas_data_policy_hash,
+        text: clinic.habeas_data_policy_text,
+      },
+      procedures: clinic.procedures ?? [],
+      faq: clinic.faq ?? [],
+      whatsapp: clinic.whatsapp_number
+        ? {
+            number: clinic.whatsapp_number,
+            welcome_message: clinic.whatsapp_welcome_message,
+          }
+        : null,
+      duracion_cita_minutos: clinic.duracion_cita_minutos,
+      server_time: new Date().toISOString(),
+    });
+  });
+}

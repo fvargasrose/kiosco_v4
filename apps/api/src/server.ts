@@ -20,6 +20,8 @@ import { redis } from './lib/redis.js';
 import { healthRoute } from './routes/health.js';
 import { adminAuthRoutes } from './routes/admin-auth.js';
 import { patientAuthRoutes } from './routes/patient-auth.js';
+import { patientMeRoutes } from './routes/patient-me.js';
+import { kioskRoutes } from './routes/kiosk.js';
 
 /**
  * Construye e inicializa el servidor Fastify.
@@ -85,6 +87,8 @@ export async function buildServer() {
   await app.register(healthRoute);
   await app.register(adminAuthRoutes);
   await app.register(patientAuthRoutes);
+  await app.register(patientMeRoutes);
+  await app.register(kioskRoutes);
 
   // Hook de cierre limpio
   app.addHook('onClose', async () => {
