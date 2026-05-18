@@ -12,6 +12,7 @@
  * NUNCA ejecutar en producción.
  */
 
+import 'dotenv/config';
 import { createHash, randomBytes } from 'crypto';
 import pg from 'pg';
 import { config } from './lib/config.js';
