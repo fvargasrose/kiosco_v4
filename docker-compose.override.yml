@@ -1,0 +1,19 @@
+# =============================================================================
+# docker-compose.override.yml — Desarrollo local
+# =============================================================================
+# Expone postgres y redis al host para que la API corra fuera de Docker.
+# Usa puertos alternativos para no chocar con servicios existentes:
+#   - postgres: host:5433 → container:5432
+#   - redis:    host:6380 → container:6379
+#
+# Este archivo es cargado automáticamente por docker compose.
+# NO commitear si contiene secretos. Está en .gitignore por omisión.
+
+services:
+  postgres:
+    ports:
+      - "5433:5432"
+
+  redis:
+    ports:
+      - "6380:6379"
