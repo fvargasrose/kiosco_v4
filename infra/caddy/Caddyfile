@@ -1,0 +1,127 @@
+# =============================================================================
+# Caddyfile - DentalKiosco
+# =============================================================================
+# Servidor reverse proxy con TLS automático (Let's Encrypt en producción).
+#
+# Rutas:
+#   /                → Frontend del kiosco (estático)
+#   /admin           → Panel admin clínica (estático)
+#   /api/*           → API backend
+#   /webhooks/*      → Webhooks (Wompi, etc) — sin auth
+#   /health          → Health check público
+# =============================================================================
+
+{
+    # Configuración global
+    email {$CADDY_EMAIL}
+
+    # Logs
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+
+    # En desarrollo local, usar TLS interno (no Let's Encrypt)
+    local_certs
+
+    # Métricas para Prometheus (cuando esté disponible)
+    servers {
+        metrics
+    }
+}
+
+# Sitio principal
+{$CADDY_DOMAIN} {
+    # Headers de seguridad globales
+    header {
+        # HSTS - solo en HTTPS real
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+        # Prevenir MIME sniffing
+        X-Content-Type-Options "nosniff"
+
+        # Prevenir clickjacking
+        X-Frame-Options "DENY"
+
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Permissions policy - bloquear APIs sensibles
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+        # Ocultar versión del servidor
+        -Server
+    }
+
+    # Compresión
+    encode gzip zstd
+
+    # Logs de acceso
+    log {
+        output stdout
+        format json
+    }
+
+    # ----- Health check (público, sin auth) -----
+    handle /health {
+        reverse_proxy api:3000
+    }
+
+    # ----- API backend -----
+    handle /api/* {
+        reverse_proxy api:3000 {
+            # Pasar IP real del cliente
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+
+            # Timeouts razonables
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
+        }
+    }
+
+    # ----- Webhooks (sin auth en proxy, validados en backend con HMAC) -----
+    handle /webhooks/* {
+        # Rate limit más bajo para webhooks legítimos
+        reverse_proxy api:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+    # ----- Panel admin (estático) -----
+    handle /admin* {
+        root * /srv/admin
+        try_files {path} {path}.html /admin/index.html
+        file_server
+
+        # CSP estricto para admin
+        header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    }
+
+    # ----- Frontend kiosco (estático, ruta por defecto) -----
+    handle {
+        root * /srv/kiosco
+        try_files {path} /index.html
+        file_server
+
+        # CSP estricto para kiosco
+        header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.qrserver.com; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+        # No cachear el HTML
+        @html {
+            path *.html
+        }
+        header @html Cache-Control "no-cache, no-store, must-revalidate"
+
+        # Cachear assets estáticos
+        @assets {
+            path *.css *.js *.png *.jpg *.svg *.woff2
+        }
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+    }
+}

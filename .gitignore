@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment - NEVER commit secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+.env.backup
+secrets/
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Docker volumes locales
+postgres_data/
+redis_data/
+caddy_data/
+postgres_backups/
+
+# Temporary
+tmp/
+temp/
+.cache/
+
+# Caddy data
+infra/caddy/data/
+infra/caddy/config/
+
+# WireGuard configs (contienen claves privadas)
+infra/wireguard/*.conf
+infra/wireguard/keys/
+
+# Backups locales
+backups/
+*.sql.gz
+*.dump
+
+# Excluir dumps/backups SQL pero conservar migraciones en git
+*.sql
+!apps/api/migrations/*.sql

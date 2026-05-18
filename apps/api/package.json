@@ -1,0 +1,46 @@
+{
+  "name": "@dentalkiosco/api",
+  "version": "3.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsx src/migrate.ts up",
+    "migrate:status": "tsx src/migrate.ts status",
+    "migrate:verify": "tsx src/migrate.ts verify",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/sensible": "^5.6.0",
+    "argon2": "^0.44.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.27.0",
+    "ioredis": "^5.4.1",
+    "jose": "^5.2.4",
+    "otplib": "^13.4.0",
+    "pg": "^8.11.5",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "qrcode": "^1.5.4",
+    "resend": "^6.12.3",
+    "twilio": "^6.0.2",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/pg": "^8.11.5",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}
