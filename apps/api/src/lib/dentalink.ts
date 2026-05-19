@@ -287,6 +287,81 @@ function addSlotIfAvailable(
   });
 }
 
+// Genera slots a partir del horario real devuelto por Dentalink (/api/v1/horarios).
+// No consulta citas ocupadas — si el slot ya está tomado, Dentalink rechaza el POST con 409.
+function generateSlotsFromHorario(
+  horario: {
+    id_dentista: number;
+    id_sucursal: number;
+    intervalo: number;
+    dias: Array<{
+      dia: number;
+      hora_inicio: string;
+      hora_fin: string;
+      hora_inicio_break: string;
+      hora_fin_break: string;
+    }>;
+  },
+  idDentista: string,
+  fechaDesde: string,
+  fechaHasta: string,
+  duracionMinutos: number,
+): DentalinkSlot[] {
+  const parseHHMM = (t: string): number => {
+    const [h, m] = t.split(':').map(Number);
+    return h! * 60 + m!;
+  };
+
+  // Tamaño real del slot = máximo entre el intervalo del dentista y la duración pedida
+  const slotMin = Math.max(horario.intervalo ?? 30, duracionMinutos);
+
+  const slots: DentalinkSlot[] = [];
+  const cursor = new Date(`${fechaDesde}T00:00:00`);
+  const hasta = new Date(`${fechaHasta}T23:59:59`);
+
+  while (cursor <= hasta) {
+    // JS: 0=Dom, 1=Lun…6=Sáb → Dentalink: 1=Lun…6=Sáb, 7=Dom
+    const jsDow = cursor.getDay();
+    const dlDia = jsDow === 0 ? 7 : jsDow;
+
+    const daySchedule = horario.dias.find((d) => d.dia === dlDia);
+    if (daySchedule) {
+      const start = parseHHMM(daySchedule.hora_inicio);
+      const end = parseHHMM(daySchedule.hora_fin);
+      const brkStart = parseHHMM(daySchedule.hora_inicio_break);
+      const brkEnd = parseHHMM(daySchedule.hora_fin_break);
+      const hasBreak = brkStart < brkEnd;
+
+      if (start < end) {
+        for (let t = start; t + slotMin <= end; t += slotMin) {
+          // Saltar slots que se solapan con el descanso
+          if (hasBreak && t < brkEnd && t + slotMin > brkStart) continue;
+
+          // Saltar slots en el pasado
+          const slotDate = new Date(cursor);
+          slotDate.setHours(Math.floor(t / 60), t % 60, 0, 0);
+          if (slotDate.getTime() <= Date.now()) continue;
+
+          const fecha = cursor.toISOString().slice(0, 10);
+          const fmtMin = (m: number) =>
+            `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+          slots.push({
+            fecha,
+            hora_inicio: fmtMin(t),
+            hora_fin: fmtMin(t + slotMin),
+            id_dentista: idDentista,
+            id_sucursal: horario.id_sucursal,
+            duracion_minutos: slotMin,
+          });
+        }
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return slots;
+}
+
 // ----- Errores -----
 
 export type DentalinkErrorCode =
@@ -556,12 +631,32 @@ class DentalinkClient {
       return list;
     }
 
-    const data = await dentalinkRequest<{ data?: DentalinkDentist[] }>(
+    // Dentalink requiere filtros en formato JSON: q={"field":{"op":val}}
+    const data = await dentalinkRequest<{
+      data?: Array<{
+        id: number;
+        nombre: string;
+        apellidos?: string;
+        especialidad?: string;
+        id_sucursal: number;
+        habilitado: number;
+        agenda_online: number;
+        intervalo?: number;
+      }>;
+    }>(
       '/api/v1/dentistas',
       dentalinkToken!,
-      { query: { sucursal_id: String(sucursalId) } },
+      { query: { q: JSON.stringify({ id_sucursal: { eq: sucursalId } }) } },
     );
-    const list = data.data ?? [];
+    const list: DentalinkDentist[] = (data.data ?? [])
+      .filter((d) => d.habilitado === 1)
+      .map((d) => ({
+        id: String(d.id),
+        nombre: d.nombre,
+        apellido: d.apellidos,
+        especialidad: d.especialidad,
+        id_sucursal: d.id_sucursal,
+      }));
     await setCached(cacheKey, list, CACHE_TTL_DENTISTS);
     return list;
   }
@@ -715,11 +810,26 @@ class DentalinkClient {
       return MOCK_SUCURSALES;
     }
 
-    const data = await dentalinkRequest<{ data?: DentalinkSucursal[] }>(
+    const data = await dentalinkRequest<{
+      data?: Array<{
+        id: number;
+        nombre: string;
+        direccion?: string;
+        telefono?: string;
+        habilitada: number;
+      }>;
+    }>(
       '/api/v1/sucursales',
       dentalinkToken!,
     );
-    const list = data.data ?? [];
+    const list: DentalinkSucursal[] = (data.data ?? [])
+      .filter((s) => s.habilitada === 1)
+      .map((s) => ({
+        id: s.id,
+        nombre: s.nombre,
+        direccion: s.direccion,
+        telefono: s.telefono,
+      }));
     await setCached(cacheKey, list, CACHE_TTL_SUCURSALES);
     return list;
   }
@@ -751,20 +861,35 @@ class DentalinkClient {
       return list;
     }
 
-    // Real Dentalink: GET /api/v1/citas/horarios-disponibles
-    const data = await dentalinkRequest<{ data?: DentalinkSlot[] }>(
-      '/api/v1/citas/horarios-disponibles',
+    // Dentalink no tiene endpoint de slots disponibles.
+    // Usamos el horario del dentista y generamos los slots teóricos.
+    // Si un slot ya está ocupado, Dentalink rechazará el POST /citas con 409.
+    const horarioData = await dentalinkRequest<{
+      data?: Array<{
+        id_dentista: number;
+        id_sucursal: number;
+        intervalo: number;
+        dias: Array<{
+          dia: number;              // 1=Lunes … 6=Sábado, 7=Domingo
+          hora_inicio: string;     // "HH:MM:SS"
+          hora_fin: string;
+          hora_inicio_break: string;
+          hora_fin_break: string;
+        }>;
+      }>;
+    }>(
+      '/api/v1/horarios',
       dentalinkToken!,
-      {
-        query: {
-          id_dentista: idDentista,
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta,
-          duracion_minutos: String(duracionMinutos),
-        },
-      },
+      { query: { q: JSON.stringify({ id_dentista: { eq: Number(idDentista) } }) } },
     );
-    const list = data.data ?? [];
+
+    const horario = horarioData.data?.[0];
+    if (!horario) {
+      await setCached(cacheKey, [], CACHE_TTL_SLOTS);
+      return [];
+    }
+
+    const list = generateSlotsFromHorario(horario, idDentista, fechaDesde, fechaHasta, duracionMinutos);
     await setCached(cacheKey, list, CACHE_TTL_SLOTS);
     return list;
   }
@@ -841,21 +966,21 @@ class DentalinkClient {
       return newApt;
     }
 
-    // Dentalink real: POST /api/v1/citas
+    // Dentalink real: POST /api/v1/citas — IDs deben ser numéricos
     const data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
       '/api/v1/citas',
       dentalinkToken!,
       {
         method: 'POST',
         body: {
-          id_paciente: patientId,
-          id_dentista: dentistId,
+          id_paciente: Number(patientId),
+          id_dentista: Number(dentistId),
           id_sucursal: sucursalId,
           fecha,
           hora_inicio: horaInicio,
           hora_fin: horaFin,
-          comentario: notas,
-          id_estado: 1, // 'Reservada' (varía por instalación)
+          comentarios: notas,
+          id_estado: 1, // 1 = Reservada
         },
       },
     );
