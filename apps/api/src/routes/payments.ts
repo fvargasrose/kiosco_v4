@@ -34,6 +34,7 @@ import { decrypt } from '../lib/crypto.js';
 import { dentalink, DentalinkError } from '../lib/dentalink.js';
 import { wompi, WompiError, type WompiStatus, type WompiWebhookEvent } from '../lib/wompi.js';
 import { requirePatient } from '../lib/patient-middleware.js';
+import { sendPaymentReceipt } from '../lib/notifications.js';
 
 // =============================================================================
 // Helpers
@@ -457,6 +458,14 @@ export async function paymentsRoutes(app: FastifyInstance): Promise<void> {
           logger.error(
             { err, reference: tx.reference },
             'Reconciliación inicial Dentalink falló (será reintentada)',
+          );
+        });
+
+        // Hito 8: enviar comprobante por email + SMS (best-effort, async)
+        sendPaymentReceipt({ reference: tx.reference }).catch((err) => {
+          logger.error(
+            { err, reference: tx.reference },
+            'Envío de comprobante falló',
           );
         });
       }

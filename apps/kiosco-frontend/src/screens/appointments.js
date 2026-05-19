@@ -49,7 +49,7 @@ export function renderAppointments(container, _params, navigate) {
     listContainer.innerHTML = spinner({ text: 'Cargando citas...' });
     try {
       const res = await api.getAppointments(status);
-      renderList(listContainer, res.data ?? [], status, () => loadList(status));
+      renderList(listContainer, res.data ?? [], status, () => loadList(status), navigate);
     } catch (err) {
       renderError(listContainer, err);
     }
@@ -71,7 +71,7 @@ export function renderAppointments(container, _params, navigate) {
   return null;
 }
 
-function renderList(container, items, status, onActionDone) {
+function renderList(container, items, status, onActionDone, navigate) {
   if (items.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
@@ -89,7 +89,7 @@ function renderList(container, items, status, onActionDone) {
     btn.addEventListener('click', () => {
       const apt = items.find((a) => a.id === btn.dataset.id);
       if (!apt) return;
-      handleAppointmentAction(apt, btn.dataset.action, onActionDone);
+      handleAppointmentAction(apt, btn.dataset.action, onActionDone, navigate);
     });
   });
 }
@@ -136,17 +136,30 @@ function renderItem(apt) {
  * Maneja clicks en botones de acción de cita.
  *
  * - 'cancel': muestra confirmación + (al confirmar) llama al backend.
- * - 'reschedule': muestra modal informativo (queda para Hito 8).
+ * - 'reschedule': explica el flujo (= crear cita nueva, opcionalmente cancelar
+ *   la actual) y navega a booking.
  */
-function handleAppointmentAction(apt, action, refreshList) {
+function handleAppointmentAction(apt, action, refreshList, navigate) {
   if (action === 'reschedule') {
-    // Reagendar real requiere selector de disponibilidad — queda para Hito 8.
+    // En el Hito 8 decidimos: reagendar = crear cita nueva (independiente).
+    // El paciente decide si quiere cancelar la cita actual o mantenerla.
     showModal({
       icon: '📅',
       title: 'Reagendar cita',
-      body: `Para reagendar la cita del ${formatDate(apt.fecha)} a las ${apt.hora_inicio}, por favor dirígete a recepción. Próximamente podrás hacerlo desde el kiosco.`,
-      actions: [{ label: 'Entendido', variant: 'primary', action: () => {} }],
-      dismissible: true,
+      body: `Para reagendar, vamos a crear una cita nueva. Si quieres cancelar la actual del ${formatDate(apt.fecha)} a las ${apt.hora_inicio}, puedes hacerlo desde "Mis citas" después.`,
+      actions: [
+        {
+          label: 'Cancelar',
+          variant: 'secondary',
+          action: () => {},
+        },
+        {
+          label: 'Agendar nueva',
+          variant: 'primary',
+          action: () => navigate('booking'),
+        },
+      ],
+      dismissible: false,
     });
     return;
   }

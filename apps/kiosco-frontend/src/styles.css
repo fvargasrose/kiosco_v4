@@ -1129,3 +1129,316 @@ body {
     font-size: 1.75rem;
   }
 }
+
+/* =============================================================================
+   Hito 8 — Booking flow
+   ============================================================================= */
+
+/* Tarjeta destacada en home (agendar) */
+.menu-card-featured {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  color: white;
+  border-color: var(--color-primary-dark);
+}
+.menu-card-featured h3,
+.menu-card-featured p {
+  color: white;
+}
+.menu-card-featured:hover,
+.menu-card-featured:active {
+  filter: brightness(1.05);
+}
+
+/* Progress indicator del wizard */
+.booking-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.progress-step {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.progress-step.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 0 0 4px rgba(3, 105, 161, 0.15);
+}
+
+.progress-step.done {
+  background: var(--color-success);
+  color: white;
+}
+
+.progress-step.done span::before {
+  content: '✓';
+}
+.progress-step.done span {
+  font-size: 0;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--color-border);
+  margin: 0 4px;
+  border-radius: 2px;
+  max-width: 60px;
+}
+
+/* Lista de tarjetas tipo option (sucursales, dentistas) */
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.option-card {
+  background: white;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  transition: all 0.2s;
+}
+
+.option-card:hover,
+.option-card:active {
+  border-color: var(--color-primary);
+  background: #f0f9ff;
+  transform: translateX(4px);
+}
+
+.option-card-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.option-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.option-card-title {
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 0.15rem;
+}
+
+.option-card-subtitle {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.option-card-meta {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.option-card-arrow {
+  font-size: 1.75rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+/* Grid de días */
+.date-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(95px, 1fr));
+  gap: 0.75rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.date-card {
+  background: white;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: all 0.2s;
+}
+
+.date-card:hover,
+.date-card:active {
+  border-color: var(--color-primary);
+  background: #f0f9ff;
+  transform: translateY(-2px);
+}
+
+.date-card-dow {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+  margin-bottom: 0.15rem;
+}
+
+.date-card-day {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1;
+}
+
+.date-card-month {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+  margin-top: 0.15rem;
+}
+
+/* Grid de slots de hora */
+.slot-group {
+  margin-bottom: 1.5rem;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.slot-group h3 {
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.5rem;
+}
+
+.slot-btn {
+  background: white;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--color-text);
+  transition: all 0.2s;
+}
+
+.slot-btn:hover,
+.slot-btn:active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: white;
+}
+
+/* Resumen de booking en paso confirm */
+.booking-summary {
+  background: white;
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.booking-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+}
+
+.booking-summary-row:last-child {
+  border-bottom: none;
+}
+
+.booking-summary-label {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.booking-summary-value {
+  font-weight: 600;
+  text-align: right;
+}
+
+/* Portrait: optimizaciones */
+@media (min-height: 1400px) and (orientation: portrait) {
+  .booking-progress {
+    max-width: 700px;
+  }
+  .progress-step {
+    width: 48px;
+    height: 48px;
+    font-size: 1.1rem;
+  }
+  .date-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 1rem;
+  }
+  .date-card {
+    padding: 1rem;
+  }
+  .slot-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+}
+
+/* Tablet pequeño */
+@media (max-width: 800px) {
+  .date-grid {
+    grid-template-columns: repeat(auto-fill, minmax(75px, 1fr));
+    gap: 0.5rem;
+  }
+  .date-card {
+    padding: 0.5rem 0.25rem;
+  }
+  .date-card-day {
+    font-size: 1.4rem;
+  }
+  .slot-grid {
+    grid-template-columns: repeat(auto-fill, minmax(75px, 1fr));
+  }
+  .booking-summary-row {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .booking-summary-value {
+    text-align: left;
+  }
+  .progress-step {
+    width: 30px;
+    height: 30px;
+    font-size: 0.8rem;
+  }
+}

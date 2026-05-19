@@ -29,16 +29,22 @@ export function renderHome(container, _params, navigate) {
         </div>
 
         <div class="menu-grid">
+          <button type="button" class="menu-card menu-card-featured" data-target="booking">
+            <div class="menu-card-icon">➕</div>
+            <h3>Agendar nueva cita</h3>
+            <p>Escoge sede, profesional y horario</p>
+          </button>
+
           <button type="button" class="menu-card" data-target="appointments">
             <div class="menu-card-icon">📅</div>
             <h3>Mis citas</h3>
-            <p>Consulta, cancela o reagenda</p>
+            <p>Consulta o cancela tus citas</p>
           </button>
 
           <button type="button" class="menu-card" data-target="treatments">
             <div class="menu-card-icon">🦷</div>
             <h3>Mis tratamientos</h3>
-            <p>Historial y estado de pagos</p>
+            <p>Historial y pagos</p>
           </button>
 
           <button type="button" class="menu-card" data-target="profile">

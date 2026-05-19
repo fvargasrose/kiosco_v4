@@ -159,6 +159,42 @@ class ApiClient {
       _usePatient: true,
     });
   }
+
+  // ===== Hito 8: Booking =====
+  async getBranches() {
+    return this._fetch('/me/booking/branches', { _usePatient: true });
+  }
+
+  async getDentists(branchId) {
+    return this._fetch(`/me/booking/dentists?branch_id=${encodeURIComponent(branchId)}`, {
+      _usePatient: true,
+    });
+  }
+
+  async getSlots({ dentistId, from, to, duration }) {
+    const qs = new URLSearchParams({
+      dentist_id: dentistId,
+      from,
+      to,
+    });
+    if (duration) qs.set('duration', String(duration));
+    return this._fetch(`/me/booking/slots?${qs.toString()}`, { _usePatient: true });
+  }
+
+  async createBookingAppointment({ dentistId, branchId, fecha, horaInicio, horaFin, notas }) {
+    return this._fetch('/me/booking/appointments', {
+      method: 'POST',
+      body: {
+        dentist_id: dentistId,
+        branch_id: branchId,
+        fecha,
+        hora_inicio: horaInicio,
+        hora_fin: horaFin,
+        notas,
+      },
+      _usePatient: true,
+    });
+  }
 }
 
 export const api = new ApiClient();

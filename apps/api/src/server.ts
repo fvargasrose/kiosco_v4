@@ -23,6 +23,8 @@ import { patientAuthRoutes } from './routes/patient-auth.js';
 import { patientMeRoutes } from './routes/patient-me.js';
 import { kioskRoutes } from './routes/kiosk.js';
 import { paymentsRoutes } from './routes/payments.js';
+import { bookingRoutes } from './routes/booking.js';
+import { startReconciler, stopReconciler } from './lib/reconciler.js';
 
 /**
  * Construye e inicializa el servidor Fastify.
@@ -91,6 +93,7 @@ export async function buildServer() {
   await app.register(patientMeRoutes);
   await app.register(kioskRoutes);
   await app.register(paymentsRoutes);
+  await app.register(bookingRoutes);
 
   // Hook de cierre limpio
   app.addHook('onClose', async () => {
@@ -119,6 +122,9 @@ async function start() {
       host: '0.0.0.0',
     });
 
+    // Hito 8: arrancar el reconciliador de pagos
+    startReconciler();
+
     logger.info(
       {
         port: config.API_PORT,
@@ -136,6 +142,7 @@ async function start() {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutting down...');
     try {
+      stopReconciler();
       if (app) await app.close();
       logger.info('Shutdown complete');
       process.exit(0);

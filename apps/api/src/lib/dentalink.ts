@@ -55,10 +55,33 @@ export interface DentalinkDentist {
   id_sucursal: number;
 }
 
+export interface DentalinkSucursal {
+  id: number;
+  nombre: string;
+  direccion?: string;
+  telefono?: string;
+  horario?: string;
+}
+
+/**
+ * Slot de disponibilidad de un dentista en una fecha específica.
+ * `hora_inicio` y `hora_fin` en formato HH:mm 24h.
+ */
+export interface DentalinkSlot {
+  fecha: string; // YYYY-MM-DD
+  hora_inicio: string; // HH:mm
+  hora_fin: string; // HH:mm
+  id_dentista: string;
+  id_sucursal: number;
+  duracion_minutos: number;
+}
+
 const CACHE_TTL_PATIENT_LOOKUP = 60;
 const CACHE_TTL_APPOINTMENTS = 30;
 const CACHE_TTL_TREATMENTS = 60;
 const CACHE_TTL_DENTISTS = 300;
+const CACHE_TTL_SUCURSALES = 600; // 10 min — cambia poco
+const CACHE_TTL_SLOTS = 60; // 1 min — cambia constantemente
 const REQUEST_TIMEOUT_MS = 10_000;
 
 // Dentalink devuelve celular sin prefijo país (ej: "3206505239").
@@ -163,7 +186,106 @@ const MOCK_DENTISTS: DentalinkDentist[] = [
   { id: 'dr-001', nombre: 'Roberto', apellido: 'Sánchez', especialidad: 'Odontología General', id_sucursal: 1 },
   { id: 'dr-002', nombre: 'Laura', apellido: 'Méndez', especialidad: 'Ortodoncia', id_sucursal: 1 },
   { id: 'dr-003', nombre: 'Carlos', apellido: 'Vargas', especialidad: 'Endodoncia', id_sucursal: 1 },
+  { id: 'dr-004', nombre: 'Ana', apellido: 'Rojas', especialidad: 'Odontopediatría', id_sucursal: 2 },
 ];
+
+const MOCK_SUCURSALES: DentalinkSucursal[] = [
+  {
+    id: 1,
+    nombre: 'Sede Principal',
+    direccion: 'Cra 5 # 4-25, Centro, Popayán',
+    telefono: '+57 602 8200000',
+    horario: 'Lun-Vie 7am-7pm · Sáb 8am-2pm',
+  },
+  {
+    id: 2,
+    nombre: 'Sede Norte',
+    direccion: 'Cl 15 N # 32-10, Popayán',
+    telefono: '+57 602 8200001',
+    horario: 'Lun-Vie 8am-6pm',
+  },
+];
+
+/**
+ * Genera slots disponibles deterministas para mock mode.
+ *
+ * Lógica:
+ *   - Cada dentista trabaja Lun-Sáb, 9:00-12:00 y 14:00-17:00
+ *   - Slots de 30 minutos
+ *   - Para que parezca real, "ocupa" pseudoaleatoriamente algunos slots
+ *     usando un hash determinista del (id_dentista + fecha + hora)
+ */
+function generateMockSlots(
+  idDentista: string,
+  fechaDesde: Date,
+  fechaHasta: Date,
+  duracionMinutos: number,
+): DentalinkSlot[] {
+  const dentista = MOCK_DENTISTS.find((d) => d.id === idDentista);
+  if (!dentista) return [];
+
+  const slots: DentalinkSlot[] = [];
+  const cursor = new Date(fechaDesde);
+  cursor.setHours(0, 0, 0, 0);
+  const hasta = new Date(fechaHasta);
+  hasta.setHours(23, 59, 59, 999);
+
+  while (cursor <= hasta) {
+    const dow = cursor.getDay(); // 0=domingo
+    if (dow !== 0) {
+      // Lun-Sáb
+      const morningEnd = dow === 6 ? 13 : 12;
+      const eveningStart = dow === 6 ? 0 : 14; // sábado solo mañana
+      const eveningEnd = dow === 6 ? 0 : 17;
+
+      // Mañana
+      for (let h = 9 * 60; h < morningEnd * 60; h += duracionMinutos) {
+        addSlotIfAvailable(slots, dentista, cursor, h, duracionMinutos);
+      }
+      // Tarde
+      if (eveningEnd > eveningStart) {
+        for (let h = eveningStart * 60; h < eveningEnd * 60; h += duracionMinutos) {
+          addSlotIfAvailable(slots, dentista, cursor, h, duracionMinutos);
+        }
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return slots;
+}
+
+function addSlotIfAvailable(
+  slots: DentalinkSlot[],
+  dentista: DentalinkDentist,
+  date: Date,
+  minuteOfDay: number,
+  duracion: number,
+): void {
+  const startMs = new Date(date).setHours(0, 0, 0, 0) + minuteOfDay * 60_000;
+  if (startMs < Date.now()) return; // no slots pasados
+
+  // "Ocupación" pseudoaleatoria pero determinista
+  const hashKey = `${dentista.id}-${date.toISOString().slice(0, 10)}-${minuteOfDay}`;
+  let h = 0;
+  for (let i = 0; i < hashKey.length; i++) h = (h * 31 + hashKey.charCodeAt(i)) | 0;
+  if (((h % 10) + 10) % 10 < 4) return; // ~40% ocupados
+
+  const fecha = date.toISOString().slice(0, 10);
+  const hi = Math.floor(minuteOfDay / 60).toString().padStart(2, '0');
+  const mi = (minuteOfDay % 60).toString().padStart(2, '0');
+  const endMin = minuteOfDay + duracion;
+  const he = Math.floor(endMin / 60).toString().padStart(2, '0');
+  const me = (endMin % 60).toString().padStart(2, '0');
+
+  slots.push({
+    fecha,
+    hora_inicio: `${hi}:${mi}`,
+    hora_fin: `${he}:${me}`,
+    id_dentista: dentista.id,
+    id_sucursal: dentista.id_sucursal,
+    duracion_minutos: duracion,
+  });
+}
 
 // ----- Errores -----
 
@@ -573,6 +695,185 @@ class DentalinkClient {
 
     await this.invalidatePatientCache(patientId);
     return { paymentId: data.data.id };
+  }
+
+  // =========================================================================
+  // Hito 8: Booking de nuevas citas
+  // =========================================================================
+
+  /**
+   * Lista las sucursales activas de la clínica.
+   * Cache 10 min en Redis (cambian rara vez).
+   */
+  async getSucursales(dentalinkToken: string | null): Promise<DentalinkSucursal[]> {
+    const cacheKey = `dl:sucursales`;
+    const cached = await getCached<DentalinkSucursal[]>(cacheKey);
+    if (cached) return cached;
+
+    if (isMockMode(dentalinkToken)) {
+      await setCached(cacheKey, MOCK_SUCURSALES, CACHE_TTL_SUCURSALES);
+      return MOCK_SUCURSALES;
+    }
+
+    const data = await dentalinkRequest<{ data?: DentalinkSucursal[] }>(
+      '/api/v1/sucursales',
+      dentalinkToken!,
+    );
+    const list = data.data ?? [];
+    await setCached(cacheKey, list, CACHE_TTL_SUCURSALES);
+    return list;
+  }
+
+  /**
+   * Obtiene los slots disponibles de un dentista en un rango de fechas.
+   * Cache 1 min en Redis para evitar carga sobre Dentalink en flujos repetitivos
+   * de UI (cuando el paciente navega entre días).
+   *
+   * @param duracionMinutos Duración del procedimiento. Por defecto 30 min.
+   *                        Viene de `clinic.duracion_cita_minutos` o el procedimiento.
+   */
+  async getAvailableSlots(
+    idDentista: string,
+    fechaDesde: string, // YYYY-MM-DD
+    fechaHasta: string, // YYYY-MM-DD
+    duracionMinutos: number,
+    dentalinkToken: string | null,
+  ): Promise<DentalinkSlot[]> {
+    const cacheKey = `dl:slots:${idDentista}:${fechaDesde}:${fechaHasta}:${duracionMinutos}`;
+    const cached = await getCached<DentalinkSlot[]>(cacheKey);
+    if (cached) return cached;
+
+    if (isMockMode(dentalinkToken)) {
+      const desde = new Date(`${fechaDesde}T00:00:00`);
+      const hasta = new Date(`${fechaHasta}T23:59:59`);
+      const list = generateMockSlots(idDentista, desde, hasta, duracionMinutos);
+      await setCached(cacheKey, list, CACHE_TTL_SLOTS);
+      return list;
+    }
+
+    // Real Dentalink: GET /api/v1/citas/horarios-disponibles
+    const data = await dentalinkRequest<{ data?: DentalinkSlot[] }>(
+      '/api/v1/citas/horarios-disponibles',
+      dentalinkToken!,
+      {
+        query: {
+          id_dentista: idDentista,
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta,
+          duracion_minutos: String(duracionMinutos),
+        },
+      },
+    );
+    const list = data.data ?? [];
+    await setCached(cacheKey, list, CACHE_TTL_SLOTS);
+    return list;
+  }
+
+  /**
+   * Crea una cita nueva en Dentalink.
+   *
+   * Tras crear, invalida la caché de citas del paciente para que la siguiente
+   * lectura ya la incluya.
+   *
+   * @throws DentalinkError CONFLICT si el slot ya fue tomado por otro paciente.
+   */
+  async createAppointment(params: {
+    patientId: string;
+    dentistId: string;
+    sucursalId: number;
+    fecha: string; // YYYY-MM-DD
+    horaInicio: string; // HH:mm
+    horaFin: string; // HH:mm
+    notas?: string;
+    dentalinkToken: string | null;
+  }): Promise<DentalinkAppointment> {
+    const {
+      patientId,
+      dentistId,
+      sucursalId,
+      fecha,
+      horaInicio,
+      horaFin,
+      notas,
+      dentalinkToken,
+    } = params;
+
+    if (isMockMode(dentalinkToken)) {
+      // Verificar que el slot exista y no esté ya tomado (mocks)
+      const dup = MOCK_APPOINTMENTS.find(
+        (a) =>
+          a.id_dentista === dentistId &&
+          a.fecha === fecha &&
+          a.hora_inicio === horaInicio &&
+          a.estado !== 'Cancelada',
+      );
+      if (dup) {
+        throw new DentalinkError(
+          'El horario ya no está disponible',
+          'CONFLICT',
+          409,
+        );
+      }
+
+      const dentist = MOCK_DENTISTS.find((d) => d.id === dentistId);
+      const patient = MOCK_PATIENTS.find((p) => p.id === patientId);
+      const sucursal = MOCK_SUCURSALES.find((s) => s.id === sucursalId);
+      if (!dentist || !patient) {
+        throw new DentalinkError('Dentista o paciente no encontrado', 'NOT_FOUND', 404);
+      }
+
+      const newApt: DentalinkAppointment = {
+        id: `apt-new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        fecha,
+        hora_inicio: horaInicio,
+        hora_fin: horaFin,
+        estado: 'Reservada',
+        id_paciente: patientId,
+        paciente: patient.nombre,
+        id_dentista: dentistId,
+        dentista: `${dentist.nombre} ${dentist.apellido ?? ''}`.trim(),
+        id_sucursal: sucursalId,
+        sucursal: sucursal?.nombre ?? '',
+        tratamiento: notas || 'Consulta',
+      };
+      MOCK_APPOINTMENTS.push(newApt);
+      await this.invalidatePatientCache(patientId);
+      return newApt;
+    }
+
+    // Dentalink real: POST /api/v1/citas
+    const data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
+      '/api/v1/citas',
+      dentalinkToken!,
+      {
+        method: 'POST',
+        body: {
+          id_paciente: patientId,
+          id_dentista: dentistId,
+          id_sucursal: sucursalId,
+          fecha,
+          hora_inicio: horaInicio,
+          hora_fin: horaFin,
+          comentario: notas,
+          id_estado: 1, // 'Reservada' (varía por instalación)
+        },
+      },
+    );
+    if (!data.data) {
+      throw new DentalinkError(
+        'Respuesta vacía de Dentalink al crear cita',
+        'UPSTREAM_ERROR',
+      );
+    }
+    await this.invalidatePatientCache(patientId);
+    // Invalidar caché de slots también
+    try {
+      const keys = await redis.getClient().keys(`dl:slots:${dentistId}:*`);
+      if (keys.length > 0) await redis.del(...keys);
+    } catch (err) {
+      logger.warn({ err, dentistId }, 'Slot cache invalidation failed');
+    }
+    return data.data;
   }
 
   async invalidatePatientCache(patientId: string): Promise<void> {
