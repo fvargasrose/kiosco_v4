@@ -76,6 +76,25 @@ export interface DentalinkSlot {
   duracion_minutos: number;
 }
 
+export interface DentalinkCreatePatientParams {
+  nombre: string;
+  apellidos: string;
+  email: string;
+  /** Celular con o sin prefijo +57 — se normaliza antes de enviar */
+  celular: string;
+  fecha_nacimiento: string; // YYYY-MM-DD
+  sexo: 'M' | 'F';
+  direccion: string;
+  ciudad: string;
+  comuna?: string;
+  rut: string; // cédula
+  ocupacion?: string;
+}
+
+export interface DentalinkCreatedPatient {
+  id: string;
+}
+
 const CACHE_TTL_PATIENT_LOOKUP = 60;
 const CACHE_TTL_APPOINTMENTS = 30;
 const CACHE_TTL_TREATMENTS = 60;
@@ -95,7 +114,7 @@ function normalizeCelular(celular: string): string {
 
 // ----- Mock data -----
 
-const MOCK_PATIENTS: DentalinkPatient[] = [
+const MOCK_PATIENTS_INITIAL: DentalinkPatient[] = [
   {
     id: '12345',
     rut: '1061700000',
@@ -113,6 +132,8 @@ const MOCK_PATIENTS: DentalinkPatient[] = [
     fecha_nacimiento: '1985-08-20',
   },
 ];
+
+let MOCK_PATIENTS: DentalinkPatient[] = MOCK_PATIENTS_INITIAL.map((p) => ({ ...p }));
 
 const MOCK_APPOINTMENTS_INITIAL: DentalinkAppointment[] = [
   {
@@ -178,6 +199,7 @@ let MOCK_TREATMENTS: DentalinkTreatment[] = MOCK_TREATMENTS_INITIAL.map((t) => (
  * SOLO para tests — no usar en producción.
  */
 export function _resetMockDataForTests(): void {
+  MOCK_PATIENTS = MOCK_PATIENTS_INITIAL.map((p) => ({ ...p }));
   MOCK_APPOINTMENTS = MOCK_APPOINTMENTS_INITIAL.map((a) => ({ ...a }));
   MOCK_TREATMENTS = MOCK_TREATMENTS_INITIAL.map((t) => ({ ...t }));
 }
@@ -999,6 +1021,117 @@ class DentalinkClient {
       logger.warn({ err, dentistId }, 'Slot cache invalidation failed');
     }
     return data.data;
+  }
+
+  /**
+   * Busca si ya existe un paciente con el mismo email o celular en Dentalink.
+   * Se usan dos consultas independientes (Dentalink no admite OR).
+   * Retorna el paciente encontrado o null si no hay coincidencia.
+   */
+  async checkPatientExistsByEmailOrCelular(
+    email: string,
+    celular: string,
+    dentalinkToken: string | null,
+  ): Promise<DentalinkPatient | null> {
+    // Normalizar celular al formato que Dentalink almacena (sin +57)
+    const dlCelular = celular.startsWith('+57') ? celular.slice(3) : celular;
+
+    if (isMockMode(dentalinkToken)) {
+      const byEmail = MOCK_PATIENTS.find(
+        (p) => p.email?.toLowerCase() === email.toLowerCase(),
+      ) ?? null;
+      if (byEmail) return byEmail;
+      const byCelular = MOCK_PATIENTS.find((p) => {
+        const stored = p.celular.startsWith('+57') ? p.celular.slice(3) : p.celular;
+        return stored === dlCelular;
+      }) ?? null;
+      return byCelular;
+    }
+
+    // Buscar por email
+    try {
+      const emailFilter = JSON.stringify({ email: { eq: email } });
+      const emailRes = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
+        '/api/v1/pacientes',
+        dentalinkToken!,
+        { query: { q: emailFilter } },
+      );
+      const byEmail = emailRes.data?.[0] ?? null;
+      if (byEmail) return { ...byEmail, celular: normalizeCelular(byEmail.celular) };
+    } catch (err) {
+      if (!(err instanceof DentalinkError && err.code === 'NOT_FOUND')) throw err;
+    }
+
+    // Buscar por celular (Dentalink almacena sin +57)
+    try {
+      const celFilter = JSON.stringify({ celular: { eq: dlCelular } });
+      const celRes = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
+        '/api/v1/pacientes',
+        dentalinkToken!,
+        { query: { q: celFilter } },
+      );
+      const byCelular = celRes.data?.[0] ?? null;
+      if (byCelular) return { ...byCelular, celular: normalizeCelular(byCelular.celular) };
+    } catch (err) {
+      if (!(err instanceof DentalinkError && err.code === 'NOT_FOUND')) throw err;
+    }
+
+    return null;
+  }
+
+  /**
+   * Crea un paciente nuevo en Dentalink.
+   * No hace verificación de duplicados — llamar checkPatientExistsByEmailOrCelular antes.
+   */
+  async createPatient(
+    params: DentalinkCreatePatientParams,
+    dentalinkToken: string | null,
+  ): Promise<DentalinkCreatedPatient> {
+    const dlCelular = params.celular.startsWith('+57') ? params.celular.slice(3) : params.celular;
+
+    if (isMockMode(dentalinkToken)) {
+      const newId = String(Date.now());
+      const newPatient: DentalinkPatient = {
+        id: newId,
+        rut: params.rut,
+        nombre: `${params.nombre} ${params.apellidos}`,
+        celular: normalizeCelular(dlCelular),
+        email: params.email,
+        fecha_nacimiento: params.fecha_nacimiento,
+      };
+      MOCK_PATIENTS.push(newPatient);
+      logger.info({ rut: maskCedula(params.rut), id: newId }, '[MOCK] createPatient');
+      return { id: newId };
+    }
+
+    const body = {
+      nombre: params.nombre,
+      apellidos: params.apellidos,
+      email: params.email,
+      celular: dlCelular,
+      telefono: dlCelular,
+      fecha_nacimiento: params.fecha_nacimiento,
+      sexo: params.sexo,
+      direccion: params.direccion,
+      ciudad: params.ciudad,
+      comuna: params.comuna ?? '',
+      rut: params.rut,
+      prevision: '',
+      ocupacion: params.ocupacion ?? '',
+      observaciones: '',
+    };
+
+    const data = await dentalinkRequest<{ data?: { id: number | string } }>(
+      '/api/v1/pacientes',
+      dentalinkToken!,
+      { method: 'POST', body },
+    );
+
+    const id = data.data?.id;
+    if (!id) {
+      throw new DentalinkError('Dentalink no retornó ID del paciente creado', 'UPSTREAM_ERROR');
+    }
+    return { id: String(id) };
   }
 
   async invalidatePatientCache(patientId: string): Promise<void> {

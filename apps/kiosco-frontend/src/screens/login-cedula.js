@@ -53,6 +53,13 @@ export function renderLoginCedula(container, params, navigate) {
           <button type="button" class="btn btn-primary btn-lg btn-full" id="submit-btn">
             Enviar código
           </button>
+
+          <div class="register-link-row">
+            <span>¿Eres paciente nuevo?</span>
+            <button type="button" class="link-btn-inline" id="register-btn">
+              Regístrate aquí →
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -153,6 +160,10 @@ export function renderLoginCedula(container, params, navigate) {
   });
 
   container.querySelector('#back-btn').addEventListener('click', () => navigate('standby'));
+
+  container.querySelector('#register-btn').addEventListener('click', () => {
+    navigate('register', { policyVersion, policyHash });
+  });
 
   return null;
 }

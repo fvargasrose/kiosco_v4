@@ -28,6 +28,7 @@ import { renderTreatments } from './screens/treatments.js';
 import { renderProfile } from './screens/profile.js';
 import { renderPayment } from './screens/payment.js';
 import { renderBooking } from './screens/booking.js';
+import { renderRegister } from './screens/register.js';
 
 // ===== Registro de pantallas =====
 registerScreen('standby', renderStandby);
@@ -41,6 +42,7 @@ registerScreen('treatments', renderTreatments);
 registerScreen('profile', renderProfile);
 registerScreen('payment', renderPayment);
 registerScreen('booking', renderBooking);
+registerScreen('register', renderRegister);
 
 // ===== Idle timer: arranca cuando hay paciente, se detiene cuando se va =====
 subscribe((s) => {

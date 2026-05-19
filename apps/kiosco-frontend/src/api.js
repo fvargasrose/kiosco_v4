@@ -181,6 +181,15 @@ class ApiClient {
     return this._fetch(`/me/booking/slots?${qs.toString()}`, { _usePatient: true });
   }
 
+  // ===== Hito 9: Registro de paciente nuevo =====
+  async registerPatient(data) {
+    return this._fetch('/kiosk/register', {
+      method: 'POST',
+      body: data,
+      _useKiosk: true,
+    });
+  }
+
   // ===== Hito 9: Standby =====
   async getStandbyConfig() {
     return this._fetch('/kiosk/standby', { _useKiosk: true });
