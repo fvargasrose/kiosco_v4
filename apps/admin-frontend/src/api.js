@@ -110,6 +110,23 @@ class AdminApiClient {
       method: 'DELETE',
     });
   }
+
+  // ── Kiosks ────────────────────────────────────────────────────────────────
+  async getKiosks() {
+    return this._fetch('/admin/kiosks');
+  }
+
+  async createKiosk(data) {
+    return this._fetch('/admin/kiosks', { method: 'POST', body: data });
+  }
+
+  async patchKiosk(id, data) {
+    return this._fetch(`/admin/kiosks/${encodeURIComponent(id)}`, { method: 'PATCH', body: data });
+  }
+
+  async deleteKiosk(id) {
+    return this._fetch(`/admin/kiosks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
 }
 
 export const api = new AdminApiClient();

@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { renderLogin } from './screens/login.js';
 import { renderClinicConfig } from './screens/clinic-config.js';
 import { renderDentists } from './screens/dentists.js';
+import { renderKiosks } from './screens/kiosks.js';
 
 const app = document.getElementById('app');
 
@@ -33,6 +34,9 @@ function showDashboard(section = 'clinic') {
         </button>
         <button class="nav-link ${section === 'dentists' ? 'active' : ''}" data-section="dentists">
           Odontólogos
+        </button>
+        <button class="nav-link ${section === 'kiosks' ? 'active' : ''}" data-section="kiosks">
+          Kioscos
         </button>
         <div style="flex:1"></div>
         <button class="nav-link" id="logout-btn" style="color:var(--danger)">
@@ -69,6 +73,8 @@ function loadSection(section, container) {
     renderClinicConfig(container);
   } else if (section === 'dentists') {
     renderDentists(container);
+  } else if (section === 'kiosks') {
+    renderKiosks(container);
   }
 }
 

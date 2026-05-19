@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(DOTENV_CONFIG_PATH=* pnpm --filter @dentalkiosco/api typecheck*)",
+      "Bash(DOTENV_CONFIG_PATH=* pnpm --filter @dentalkiosco/api test*)",
+      "Bash(DOTENV_CONFIG_PATH=* pnpm --filter @dentalkiosco/api migrate:status*)",
+      "Bash(DOTENV_CONFIG_PATH=* pnpm --filter @dentalkiosco/api migrate:verify*)",
+      "Bash(DOTENV_CONFIG_PATH=* pnpm --filter @dentalkiosco/api dev*)",
+      "Bash(pnpm --filter @dentalkiosco/kiosco-frontend dev*)",
+      "Bash(pnpm --filter @dentalkiosco/admin-frontend dev*)",
+      "Bash(pnpm --filter @dentalkiosco/kiosco-frontend build*)",
+      "Bash(pnpm --filter @dentalkiosco/admin-frontend build*)",
+      "Bash(curl -s http://localhost:3000/health*)",
+      "Bash(curl -sf http://localhost:3000/health*)",
+      "Bash(curl -s http://localhost:5173*)",
+      "Bash(docker compose ps*)",
+      "Bash(docker compose up -d*)",
+      "Bash(docker compose logs*)",
+      "Bash(kill $(lsof -ti:3000)*)"
+    ]
+  }
+}
