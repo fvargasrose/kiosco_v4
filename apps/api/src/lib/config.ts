@@ -93,6 +93,11 @@ const ConfigSchema = z.object({
   // -------- Habeas Data --------
   HABEAS_DATA_POLICY_VERSION: z.string().default('v1.0'),
 
+  // -------- Archivos subidos por el admin --------
+  UPLOADS_DIR: z.string().default('./uploads'),
+  // Tamaño máximo de archivo de standby (bytes). Default 50 MB.
+  UPLOADS_MAX_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
+
   // -------- Dev helpers --------
   DEV_MOCK_EXTERNAL_SERVICES: boolEnv(false),
   DEV_LOG_OTP: boolEnv(false),

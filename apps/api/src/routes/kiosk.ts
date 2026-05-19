@@ -12,9 +12,12 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { createReadStream, existsSync } from 'node:fs';
+import path from 'node:path';
 import { db } from '../lib/db.js';
 import { verifyKioskToken, type KioskClaims } from '../lib/jwt.js';
 import { audit } from '../lib/audit.js';
+import { config } from '../lib/config.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -101,12 +104,16 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       whatsapp_number: string | null;
       whatsapp_welcome_message: string | null;
       duracion_cita_minutos: number;
+      standby_mode: string;
+      standby_title: string | null;
+      standby_subtitle: string | null;
     }>(`
       SELECT display_name, logo_path,
              habeas_data_policy_text, habeas_data_policy_version, habeas_data_policy_hash,
              procedures, faq,
              whatsapp_number, whatsapp_welcome_message,
-             duracion_cita_minutos
+             duracion_cita_minutos,
+             standby_mode, standby_title, standby_subtitle
       FROM clinic WHERE id = 1
     `);
 
@@ -141,7 +148,73 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       duracion_cita_minutos: clinic.duracion_cita_minutos,
+      standby: {
+        mode:     clinic.standby_mode,
+        title:    clinic.standby_title ?? clinic.display_name,
+        subtitle: clinic.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
+      },
       server_time: new Date().toISOString(),
     });
+  });
+
+  // ── GET /kiosk/standby ────────────────────────────────────────────────────
+  // Devuelve la configuración de standby: modo, textos y, si aplica, hash del
+  // archivo y URL de descarga. El kiosco compara el hash con su copia local
+  // para saber si debe re-descargar.
+  app.get('/kiosk/standby', { preHandler: requireKiosk }, async (_req, reply) => {
+    const r = await db.query<{
+      standby_mode: string;
+      standby_title: string | null;
+      standby_subtitle: string | null;
+      standby_media_path: string | null;
+      standby_media_hash: string | null;
+      standby_media_updated_at: string | null;
+      display_name: string;
+    }>(`
+      SELECT standby_mode, standby_title, standby_subtitle,
+             standby_media_path, standby_media_hash, standby_media_updated_at,
+             display_name
+      FROM clinic WHERE id = 1
+    `);
+    const c = r.rows[0];
+    if (!c) return reply.code(503).send({ error: 'NOT_CONFIGURED' });
+
+    const hasFile = !!(c.standby_media_path && existsSync(c.standby_media_path));
+    const ext = c.standby_media_path ? path.extname(c.standby_media_path).slice(1) : null;
+
+    return reply.send({
+      mode:       c.standby_mode,
+      title:      c.standby_title ?? c.display_name,
+      subtitle:   c.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
+      media_hash: hasFile ? c.standby_media_hash : null,
+      media_ext:  hasFile ? ext : null,
+      media_url:  hasFile ? '/kiosk/standby/media' : null,
+    });
+  });
+
+  // ── GET /kiosk/standby/media ──────────────────────────────────────────────
+  // Descarga el archivo GIF/video actual. El kiosco lo cachea en IndexedDB.
+  app.get('/kiosk/standby/media', { preHandler: requireKiosk }, async (_req, reply) => {
+    const r = await db.query<{
+      standby_media_path: string | null;
+    }>(`SELECT standby_media_path FROM clinic WHERE id = 1`);
+
+    const filePath = r.rows[0]?.standby_media_path;
+    if (!filePath || !existsSync(filePath)) {
+      return reply.code(404).send({ error: 'NO_MEDIA' });
+    }
+
+    const ext = path.extname(filePath).slice(1).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      gif:  'image/gif',
+      mp4:  'video/mp4',
+      webm: 'video/webm',
+    };
+    const mime = mimeMap[ext] ?? 'application/octet-stream';
+
+    return reply
+      .header('Content-Type', mime)
+      .header('Cache-Control', 'private, max-age=0')
+      .send(createReadStream(filePath));
   });
 }

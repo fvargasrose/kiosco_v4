@@ -181,6 +181,19 @@ class ApiClient {
     return this._fetch(`/me/booking/slots?${qs.toString()}`, { _usePatient: true });
   }
 
+  // ===== Hito 9: Standby =====
+  async getStandbyConfig() {
+    return this._fetch('/kiosk/standby', { _useKiosk: true });
+  }
+
+  async downloadStandbyMedia() {
+    const headers = {};
+    if (this.kioskToken) headers['Authorization'] = `Bearer ${this.kioskToken}`;
+    const res = await fetch(`${BASE}/kiosk/standby/media`, { headers });
+    if (!res.ok) throw new ApiError(res.status, null);
+    return res.blob();
+  }
+
   async createBookingAppointment({ dentistId, branchId, fecha, horaInicio, horaFin, notas }) {
     return this._fetch('/me/booking/appointments', {
       method: 'POST',

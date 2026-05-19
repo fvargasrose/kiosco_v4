@@ -12,6 +12,7 @@ import Fastify from 'fastify';
 import sensible from '@fastify/sensible';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 
 import { config } from './lib/config.js';
 import { logger } from './lib/logger.js';
@@ -24,6 +25,7 @@ import { patientMeRoutes } from './routes/patient-me.js';
 import { kioskRoutes } from './routes/kiosk.js';
 import { paymentsRoutes } from './routes/payments.js';
 import { bookingRoutes } from './routes/booking.js';
+import { adminClinicRoutes } from './routes/admin-clinic.js';
 import { startReconciler, stopReconciler } from './lib/reconciler.js';
 
 /**
@@ -50,6 +52,14 @@ export async function buildServer() {
   await app.register(cors, {
     origin: false, // Mismo origen (servido por Caddy)
     credentials: true,
+  });
+
+  // Multipart para subida de archivos del admin (standby GIF/video)
+  await app.register(multipart, {
+    limits: {
+      fileSize: config.UPLOADS_MAX_BYTES,
+      files: 1,
+    },
   });
 
   // Manejador global de errores
@@ -94,6 +104,7 @@ export async function buildServer() {
   await app.register(kioskRoutes);
   await app.register(paymentsRoutes);
   await app.register(bookingRoutes);
+  await app.register(adminClinicRoutes);
 
   // Hook de cierre limpio
   app.addHook('onClose', async () => {
