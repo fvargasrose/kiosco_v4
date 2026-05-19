@@ -111,6 +111,18 @@ class AdminApiClient {
     });
   }
 
+  // ── Transactions ─────────────────────────────────────────────────────────
+  async getTransactions(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.status)    qs.set('status', params.status);
+    if (params.date_from) qs.set('date_from', params.date_from);
+    if (params.date_to)   qs.set('date_to', params.date_to);
+    if (params.page)      qs.set('page', String(params.page));
+    if (params.per_page)  qs.set('per_page', String(params.per_page));
+    const query = qs.toString() ? `?${qs}` : '';
+    return this._fetch(`/admin/transactions${query}`);
+  }
+
   // ── Kiosks ────────────────────────────────────────────────────────────────
   async getKiosks() {
     return this._fetch('/admin/kiosks');

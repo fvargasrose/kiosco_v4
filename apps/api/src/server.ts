@@ -29,6 +29,7 @@ import { adminClinicRoutes } from './routes/admin-clinic.js';
 import { patientRegisterRoutes } from './routes/patient-register.js';
 import { adminDentistRoutes } from './routes/admin-dentists.js';
 import { adminKioskRoutes } from './routes/admin-kiosks.js';
+import { adminTransactionRoutes } from './routes/admin-transactions.js';
 import { startReconciler, stopReconciler } from './lib/reconciler.js';
 
 /**
@@ -111,6 +112,7 @@ export async function buildServer() {
   await app.register(patientRegisterRoutes);
   await app.register(adminDentistRoutes);
   await app.register(adminKioskRoutes);
+  await app.register(adminTransactionRoutes);
 
   // Hook de cierre limpio
   app.addHook('onClose', async () => {
