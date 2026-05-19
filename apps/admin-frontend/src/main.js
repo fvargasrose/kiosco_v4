@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { renderLogin } from './screens/login.js';
+import { renderDashboard } from './screens/dashboard.js';
 import { renderClinicConfig } from './screens/clinic-config.js';
 import { renderDentists } from './screens/dentists.js';
 import { renderKiosks } from './screens/kiosks.js';
@@ -25,11 +26,14 @@ function showLogin() {
   renderLogin(app, () => showDashboard());
 }
 
-function showDashboard(section = 'clinic') {
+function showDashboard(section = 'dashboard') {
   app.innerHTML = `
     <div class="shell">
       <nav class="sidebar">
         <div class="sidebar-brand">🦷 DentalKiosco</div>
+        <button class="nav-link ${section === 'dashboard' ? 'active' : ''}" data-section="dashboard">
+          Dashboard
+        </button>
         <button class="nav-link ${section === 'clinic' ? 'active' : ''}" data-section="clinic">
           Configuración clínica
         </button>
@@ -57,7 +61,7 @@ function showDashboard(section = 'clinic') {
     app.querySelectorAll('.nav-link[data-section]').forEach((el) => {
       el.classList.toggle('active', el.dataset.section === s);
     });
-    loadSection(s, mainContent);
+    loadSection(s, mainContent, navigate);
   };
 
   app.querySelectorAll('.nav-link[data-section]').forEach((el) => {
@@ -69,11 +73,13 @@ function showDashboard(section = 'clinic') {
     showLogin();
   });
 
-  loadSection(section, mainContent);
+  loadSection(section, mainContent, navigate);
 }
 
-function loadSection(section, container) {
-  if (section === 'clinic') {
+function loadSection(section, container, navigate) {
+  if (section === 'dashboard') {
+    renderDashboard(container, navigate);
+  } else if (section === 'clinic') {
     renderClinicConfig(container);
   } else if (section === 'dentists') {
     renderDentists(container);

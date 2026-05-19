@@ -111,6 +111,11 @@ class AdminApiClient {
     });
   }
 
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  async getDashboard() {
+    return this._fetch('/admin/dashboard');
+  }
+
   // ── Transactions ─────────────────────────────────────────────────────────
   async getTransactions(params = {}) {
     const qs = new URLSearchParams();
