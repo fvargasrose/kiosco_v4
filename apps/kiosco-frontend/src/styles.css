@@ -983,3 +983,149 @@ body {
     text-align: left;
   }
 }
+
+/* =============================================================================
+   Hito 7 — Payment screen
+   ============================================================================= */
+
+.payment-screen {
+  max-width: 700px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.payment-instructions {
+  text-align: center;
+}
+
+.payment-instructions h2 {
+  color: var(--color-primary);
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.payment-card {
+  background: white;
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.payment-qr {
+  background: white;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.payment-qr svg {
+  display: block;
+  width: 280px;
+  height: 280px;
+}
+
+.payment-details {
+  text-align: center;
+  width: 100%;
+}
+
+.payment-amount {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 0.5rem;
+}
+
+.payment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 9999px;
+  background: var(--color-bg);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-dot.status-pending {
+  background: var(--color-warning);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.payment-expiry {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.payment-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.payment-help {
+  background: var(--color-bg);
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.payment-help p {
+  margin: 0;
+}
+
+/* Treatments: botón Pagar dentro del item-aside */
+.treatment-pay {
+  padding: 0.6rem 1.25rem;
+  font-size: 0.95rem;
+  min-height: auto;
+}
+
+/* Landscape: el QR puede ser más grande */
+@media (min-width: 1400px) and (orientation: landscape) {
+  .payment-qr svg {
+    width: 360px;
+    height: 360px;
+  }
+  .payment-amount {
+    font-size: 2.75rem;
+  }
+}
+
+/* Portrait: layout más vertical */
+@media (min-height: 1400px) and (orientation: portrait) {
+  .payment-qr svg {
+    width: 400px;
+    height: 400px;
+  }
+}
+
+/* Tablet pequeño */
+@media (max-width: 800px) {
+  .payment-qr svg {
+    width: 220px;
+    height: 220px;
+  }
+  .payment-amount {
+    font-size: 1.75rem;
+  }
+}

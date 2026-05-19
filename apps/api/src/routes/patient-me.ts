@@ -19,6 +19,7 @@ import { logger } from '../lib/logger.js';
 import { audit } from '../lib/audit.js';
 import { decrypt } from '../lib/crypto.js';
 import { dentalink, DentalinkError } from '../lib/dentalink.js';
+import { handleDentalinkError } from '../lib/dentalink-error-handler.js';
 import { requirePatient } from '../lib/patient-middleware.js';
 
 /**
@@ -43,34 +44,9 @@ async function getDentalinkToken(): Promise<string | null> {
 }
 
 /**
- * Mapper de errores Dentalink a respuestas HTTP.
+ * Mapper de errores Dentalink → ahora viene del módulo compartido.
+ * @see lib/dentalink-error-handler.ts
  */
-function handleDentalinkError(err: unknown, reply: { code(c: number): { send(b: object): unknown } }) {
-  if (err instanceof DentalinkError) {
-    if (err.code === 'TIMEOUT') {
-      return reply.code(504).send({
-        error: 'UPSTREAM_TIMEOUT',
-        message: 'El sistema de gestión está tardando en responder. Por favor intenta de nuevo.',
-      });
-    }
-    if (err.code === 'UNAUTHORIZED') {
-      logger.error({ err }, 'Dentalink token rejected - clinic config issue');
-      return reply.code(503).send({
-        error: 'UPSTREAM_UNAVAILABLE',
-        message: 'Servicio temporalmente no disponible. Contacte a recepción.',
-      });
-    }
-    if (err.code === 'NOT_FOUND') {
-      return reply.code(404).send({ error: 'NOT_FOUND' });
-    }
-    return reply.code(503).send({
-      error: 'UPSTREAM_ERROR',
-      message: 'Error al consultar el sistema de gestión.',
-    });
-  }
-  logger.error({ err }, 'Unexpected error in /me/* route');
-  return reply.code(500).send({ error: 'INTERNAL' });
-}
 
 export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -231,4 +207,147 @@ export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
       return handleDentalinkError(err, reply);
     }
   });
+
+  /**
+   * POST /me/appointments/:id/cancel - Cancelar una cita propia
+   *
+   * Seguridad:
+   *   - Requiere session_token de paciente (preHandler).
+   *   - Anti-IDOR: verifica que la cita pertenezca al paciente del JWT
+   *     ANTES de pedirle a Dentalink que la cancele.
+   *   - El cliente Dentalink también verifica el ownership en mock mode
+   *     (defensa en profundidad).
+   *
+   * Errores:
+   *   - 404: cita no encontrada o no pertenece al paciente (mismo mensaje
+   *          intencionalmente, anti-enumeración).
+   *   - 409: cita ya cancelada o ya atendida (no se puede cancelar).
+   *   - 504/503: timeout o error de Dentalink.
+   */
+  app.post<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/me/appointments/:id/cancel',
+    { preHandler: requirePatient },
+    async (request, reply) => {
+      const patient = request.patient!;
+      const appointmentId = request.params.id;
+      const reason = request.body?.reason?.slice(0, 200);
+
+      // Validación básica
+      if (!appointmentId || typeof appointmentId !== 'string') {
+        return reply.code(400).send({ error: 'BAD_REQUEST', message: 'ID de cita inválido' });
+      }
+
+      try {
+        const token = await getDentalinkToken();
+
+        // === Anti-IDOR: verificar que la cita exista y sea del paciente ===
+        // Hacemos un GET previo para no depender del filtro en cliente.
+        const appointments = await dentalink.getPatientAppointments(patient.sub, token);
+        const target = appointments.find(
+          (a) => a.id === appointmentId && a.id_paciente === patient.sub,
+        );
+
+        if (!target) {
+          await audit({
+            actorType: 'patient',
+            actorId: patient.jti,
+            action: 'patient.appointment.cancel',
+            resourceType: 'appointment',
+            resourceId: appointmentId,
+            metadata: { reason: 'not_found_or_not_owned' },
+            result: 'denied',
+            ip: request.ip,
+          });
+          return reply.code(404).send({
+            error: 'NOT_FOUND',
+            message: 'Cita no encontrada',
+          });
+        }
+
+        // Reglas de negocio: no cancelar si ya pasó o si quedan <2 horas
+        const now = new Date();
+        const aptDate = parseAptDateTime(target.fecha, target.hora_inicio);
+        if (aptDate && aptDate.getTime() < now.getTime()) {
+          await audit({
+            actorType: 'patient',
+            actorId: patient.jti,
+            action: 'patient.appointment.cancel',
+            resourceType: 'appointment',
+            resourceId: appointmentId,
+            metadata: { reason: 'past_appointment' },
+            result: 'denied',
+            ip: request.ip,
+          });
+          return reply.code(409).send({
+            error: 'CONFLICT',
+            message: 'No se puede cancelar una cita que ya pasó.',
+          });
+        }
+        if (target.estado === 'Cancelada') {
+          return reply.code(409).send({
+            error: 'CONFLICT',
+            message: 'Esta cita ya está cancelada.',
+          });
+        }
+        if (target.estado === 'Atendida') {
+          return reply.code(409).send({
+            error: 'CONFLICT',
+            message: 'No se puede cancelar una cita ya atendida.',
+          });
+        }
+
+        // === Ejecutar cancelación ===
+        const cancelled = await dentalink.cancelAppointment(
+          appointmentId,
+          patient.sub,
+          token,
+          { reason: reason || 'Cancelada por el paciente desde el kiosco' },
+        );
+
+        await audit({
+          actorType: 'patient',
+          actorId: patient.jti,
+          action: 'patient.appointment.cancel',
+          resourceType: 'appointment',
+          resourceId: appointmentId,
+          metadata: {
+            previous_estado: target.estado,
+            new_estado: cancelled.estado,
+            had_reason: !!reason,
+          },
+          result: 'success',
+          ip: request.ip,
+        });
+
+        return reply.send({
+          ok: true,
+          appointment: {
+            id: cancelled.id,
+            estado: cancelled.estado,
+            fecha: cancelled.fecha,
+            hora_inicio: cancelled.hora_inicio,
+          },
+        });
+      } catch (err) {
+        // Audit de fallos no anticipados
+        if (!(err instanceof DentalinkError)) {
+          logger.error({ err, appointmentId, patientId: patient.sub }, 'Error cancelando cita');
+        }
+        return handleDentalinkError(err, reply);
+      }
+    },
+  );
+}
+
+/**
+ * Parsea fecha "YYYY-MM-DD" + hora "HH:mm" a Date local.
+ * Retorna null si el formato es inválido.
+ */
+function parseAptDateTime(fecha: string, hora: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  const matchH = /^(\d{2}):(\d{2})/.exec(hora);
+  if (!match || !matchH) return null;
+  const [, y, m, d] = match;
+  const [, h, mi] = matchH;
+  return new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), 0);
 }

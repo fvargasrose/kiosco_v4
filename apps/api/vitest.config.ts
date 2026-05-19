@@ -9,5 +9,10 @@ export default defineConfig({
     poolOptions: {
       forks: { singleFork: true }, // Pero todos los tests del mismo archivo comparten proceso
     },
+    // Tests siempre en mock mode — nunca llaman APIs externas reales
+    env: {
+      DEV_MOCK_EXTERNAL_SERVICES: 'true',
+      DEV_MOCK_WOMPI: 'true',
+    },
   },
 });

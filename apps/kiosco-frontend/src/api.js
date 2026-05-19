@@ -133,6 +133,32 @@ class ApiClient {
       _usePatient: true,
     });
   }
+
+  // ===== Hito 7: Cancelar cita =====
+  async cancelAppointment(appointmentId, reason) {
+    return this._fetch(`/me/appointments/${encodeURIComponent(appointmentId)}/cancel`, {
+      method: 'POST',
+      body: reason ? { reason } : {},
+      _usePatient: true,
+    });
+  }
+
+  // ===== Hito 7: Pagos =====
+  async createPayment({ treatmentId, amountCop, description }) {
+    const body = { amount_cop: amountCop, description };
+    if (treatmentId) body.treatment_id = treatmentId;
+    return this._fetch('/me/payments', {
+      method: 'POST',
+      body,
+      _usePatient: true,
+    });
+  }
+
+  async getPaymentStatus(reference) {
+    return this._fetch(`/me/payments/${encodeURIComponent(reference)}`, {
+      _usePatient: true,
+    });
+  }
 }
 
 export const api = new ApiClient();

@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview --port 5173"
   },
-  "dependencies": {},
+  "dependencies": {
+    "qrcode-svg": "^1.1.0"
+  },
   "devDependencies": {
     "vite": "^5.2.0"
   }

@@ -2,7 +2,8 @@
  * Pantalla treatments — mis tratamientos y saldos.
  *
  * Muestra summary (total, abonado, saldo) + lista detallada.
- * Saldos pendientes muestran banner informativo (en Hito 7 podrá procesarse pago).
+ * En el Hito 7: si un tratamiento tiene saldo > 0, aparece botón "Pagar"
+ * que navega a la pantalla de pago con QR.
  */
 
 import { api, ApiError } from '../api.js';
@@ -35,7 +36,7 @@ export function renderTreatments(container, _params, navigate) {
   const load = async () => {
     try {
       const res = await api.getTreatments('all');
-      renderContent(content, res);
+      renderContent(content, res, navigate);
     } catch (err) {
       renderError(content, err);
     }
@@ -47,7 +48,7 @@ export function renderTreatments(container, _params, navigate) {
   return null;
 }
 
-function renderContent(container, res) {
+function renderContent(container, res, navigate) {
   const items = res.data ?? [];
   const tot = res.totales ?? { total: 0, abonado: 0, saldo_pendiente: 0 };
 
@@ -68,17 +69,6 @@ function renderContent(container, res) {
     </div>
   `;
 
-  const paymentBanner =
-    tot.saldo_pendiente > 0
-      ? `
-        <div class="alert alert-info">
-          💳 Tienes un saldo pendiente de <strong>${formatCop(tot.saldo_pendiente)}</strong>.
-          Acércate a recepción para realizar el pago.
-          <small>(Pago en línea desde el kiosco disponible próximamente.)</small>
-        </div>
-      `
-      : '';
-
   const listHtml = items.length
     ? `<div class="item-list">${items.map(renderTreatment).join('')}</div>`
     : `
@@ -88,7 +78,21 @@ function renderContent(container, res) {
         </div>
       `;
 
-  container.innerHTML = summaryHtml + paymentBanner + listHtml;
+  container.innerHTML = summaryHtml + listHtml;
+
+  // Wiring de botones "Pagar"
+  container.querySelectorAll('.treatment-pay').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tx = items.find((t) => t.id === btn.dataset.id);
+      if (!tx || tx.saldo_pendiente <= 0) return;
+      navigate('payment', {
+        treatmentId: tx.id,
+        amountCop: tx.saldo_pendiente,
+        description: `Abono ${tx.nombre}`,
+        returnTo: 'treatments',
+      });
+    });
+  });
 }
 
 function renderTreatment(t) {
@@ -97,6 +101,17 @@ function renderTreatment(t) {
   const periodo = fin ? `${inicio} → ${fin}` : `Desde ${inicio}`;
   const badge = t.saldo_pendiente > 0 ? 'badge-warning' : 'badge-success';
   const estadoEscaped = escapeHtml(t.estado);
+
+  // Botón Pagar solo si hay saldo pendiente
+  const payButton =
+    t.saldo_pendiente > 0
+      ? `
+        <button type="button" class="btn btn-primary treatment-pay"
+                data-id="${escapeHtml(t.id)}">
+          💳 Pagar ${formatCop(t.saldo_pendiente)}
+        </button>
+      `
+      : '';
 
   return `
     <div class="item-card">
@@ -111,6 +126,7 @@ function renderTreatment(t) {
       </div>
       <div class="item-aside">
         <span class="item-badge ${badge}">${estadoEscaped}</span>
+        ${payButton}
       </div>
     </div>
   `;

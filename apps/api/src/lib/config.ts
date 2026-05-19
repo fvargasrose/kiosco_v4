@@ -10,7 +10,7 @@
 
 import { z } from 'zod';
 
-// z.coerce.boolean() usa Boolean("false") === true, lo cual es incorrecto para env vars.
+// z.coerce.boolean() usa Boolean("false") === true (cualquier string no vacío es truthy).
 // Este helper convierte los strings "true"/"false" al booleano correcto.
 const boolEnv = (defaultVal: boolean) =>
   z
@@ -96,6 +96,7 @@ const ConfigSchema = z.object({
   // -------- Dev helpers --------
   DEV_MOCK_EXTERNAL_SERVICES: boolEnv(false),
   DEV_LOG_OTP: boolEnv(false),
+  DEV_MOCK_WOMPI: boolEnv(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
