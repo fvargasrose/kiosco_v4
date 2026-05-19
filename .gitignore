@@ -67,6 +67,14 @@ backups/
 *.sql.gz
 *.dump
 
+# Archivos subidos por usuarios (fotos dentistas, media standby)
+# Los subdirectorios se preservan con .gitkeep
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+!apps/api/uploads/dentists/
+apps/api/uploads/dentists/*
+!apps/api/uploads/dentists/.gitkeep
+
 # Excluir dumps/backups SQL pero conservar migraciones en git
 *.sql
 !apps/api/migrations/*.sql
