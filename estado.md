@@ -1,18 +1,21 @@
 # DentalKiosco — Estado del proyecto
-**Fecha:** 2026-05-18 · **Rama activa:** `hito9`
+**Fecha:** 2026-05-19 · **Rama activa:** `hito9` (en sync con `main`)
 
 ---
 
-## Historial de commits
+## Historial de commits (recientes)
 
 ```
+0f2bc16  feat: dashboard con métricas en panel admin (Hito 9 - Bloque C)
+04a5097  feat: vista de transacciones en panel admin (Hito 9 - Bloque B)
+57a6004  feat: gestión de kioscos desde panel admin (Hito 9 - Bloque A)
+d5373a4  chore: ignorar uploads de usuarios, preservar estructura de directorios
+2e495a8  docs: guía de despliegue a producción (Hetzner / VPS)
+d1b83e7  docs: guía de acceso y administración del panel admin
 f27749f  feat: fotos de odontólogos en panel admin y kiosco
 aea2c3e  hito9: registro de paciente nuevo desde el kiosco
 77dccea  hito9: standby multimodal (mensaje/gif/video) — backend + admin + kiosk
-e704bdb  Docs: estado.md — snapshot del proyecto al 2026-05-19
 1872adc  Fix: booking real Dentalink — dentistas filter, slots desde horario
-90b627c  Docs: guia.md con secuencia de arranque y estado del proyecto
-4d4ead9  Proyecto montado: Hitos 1-8 validados + CLAUDE.md
 ```
 
 ---
@@ -25,15 +28,15 @@ e704bdb  Docs: estado.md — snapshot del proyecto al 2026-05-19
 | 5-6 | Auth paciente OTP (SMS mock + email Resend), perfil, citas, tratamientos | 82 | ✅ |
 | 7 | Cancelación de citas, pagos Wompi, pantalla QR | 103 | ✅ |
 | 8 | Booking 5 pasos, reconciliador, comprobantes email/SMS, migración 009 | 131 | ✅ |
-| 9 | Standby multimodal, registro paciente, fotos dentistas, panel admin | 159 | 🔄 En progreso |
+| 9 | Standby multimodal, registro paciente, fotos dentistas, panel admin completo | 195 | ✅ |
 | 10 | License server, monitoreo, métricas, deploy producción | — | 🔲 Pendiente |
 
-**Tests actuales: 159 / 159 pasando (7 archivos).**
+**Tests actuales: 195 / 195 pasando (10 archivos).**
 **Migraciones: 11/11 aplicadas (001 → 011).**
 
 ---
 
-## Hito 9 — detalle de lo implementado
+## Hito 9 — detalle completo
 
 ### Standby multimodal (commit `77dccea`)
 - Migración `010_standby`: columnas `standby_mode`, `standby_title`, `standby_subtitle`, `standby_media_path`, `standby_media_hash`, `standby_media_mime`
@@ -57,6 +60,37 @@ e704bdb  Docs: estado.md — snapshot del proyecto al 2026-05-19
 - Kiosco: `booking.js` — paso de dentista reemplazado por grid con foto circular; fallback a avatar de iniciales con `onerror`
 - Tests: 15 casos (CRUD foto, público sin auth, booking con photo_url)
 
+### Gestión de kioscos desde panel admin (commit `57a6004`)
+- Backend: `GET/POST/PATCH/DELETE /admin/kiosks`
+  - Crea kiosco con JWT firmado via `signKioskToken`, expuesto una sola vez
+  - PATCH activa/desactiva con `revoked_at` y `revoked_by` automáticos
+  - DELETE soft-revoke con motivo `revoked_by_admin`
+- Admin frontend: `kiosks.js` — tabla con estado, última conexión, expiración; formulario inline con alerta de token único; toggle activar/desactivar; revocar con confirmación
+- Tests: 14 casos (CRUD, auth, 404, token único no expuesto en listado)
+
+### Vista de transacciones (commit `04a5097`)
+- Backend: `GET /admin/transactions` — paginado (20/pág), filtros por `status` (6 valores) y rango de fechas; JOIN con `kiosks` para nombre; `amount_cop` como número
+- Admin frontend: `transactions.js` — filtros por estado + fechas + limpiar; tabla con referencia, paciente enmascarado, monto COP, badge de estado, método de pago, kiosco, comprobante; resumen de aprobadas; paginación
+- Tests: 12 casos (auth, filtros, paginación, formatos)
+
+### Dashboard con métricas (commit `0f2bc16`)
+- Backend: `GET /admin/dashboard` — una CTE que agrega: kioscos activos/total, transacciones del día (cantidad + monto aprobado), pagos pendientes globales, últimas 10 transacciones con kiosco
+- Admin frontend: `dashboard.js` — pantalla de inicio con 4 tarjetas de métricas navegables + tabla de últimas transacciones + botón "Ver todas"
+- `main.js`: Dashboard como sección por defecto al iniciar sesión; navegación inyectada a todas las secciones
+- Tests: 10 casos (estructura, métricas, today filtrado por fecha)
+
+---
+
+## Panel admin — secciones disponibles
+
+| Sección | Ruta frontend | Descripción |
+|---------|--------------|-------------|
+| Dashboard | `/` (inicio) | Métricas del día + últimas transacciones |
+| Configuración clínica | Sidebar | Datos clínica, Habeas Data, standby |
+| Odontólogos | Sidebar | Fotos por dentista |
+| Kioscos | Sidebar | CRUD de kioscos con token JWT |
+| Transacciones | Sidebar | Listado paginado con filtros |
+
 ---
 
 ## Fixes aplicados sobre los parches del proveedor
@@ -65,18 +99,17 @@ Estos fixes se pierden cuando se aplica un parche nuevo y deben re-aplicarse sie
 
 ### `apps/api/src/lib/config.ts`
 ```typescript
-// Reemplazar z.coerce.boolean().default(X) con boolEnv(X)
 const boolEnv = (defaultVal: boolean) =>
   z.preprocess(
     (v) => (v === 'true' ? true : v === 'false' ? false : v),
     z.boolean(),
   ).default(defaultVal);
+// Reemplazar z.coerce.boolean().default(X) con boolEnv(X)
 // Variables: LICENSE_DEV_MODE, DEV_MOCK_EXTERNAL_SERVICES, DEV_LOG_OTP, DEV_MOCK_WOMPI
 ```
 
 ### `apps/api/src/lib/dentalink.ts`
 ```typescript
-// 1. Normalizar celular (después de REQUEST_TIMEOUT_MS):
 function normalizeCelular(celular: string): string {
   if (!celular) return celular;
   if (celular.startsWith('+')) return celular;
@@ -163,9 +196,10 @@ RESEND_API_KEY=re_DuPMPdxi_...     → Email OTP real a fabiavargas@gmail.com
 
 ---
 
-## Próximo paso — Hito 9 (pendiente)
+## Próximo paso — Hito 10
 
-Las siguientes funcionalidades del Hito 9 aún no están implementadas:
-- Gestión de kiosks (crear, activar/desactivar) desde el panel admin
-- Vista de pagos pendientes en el panel admin
-- Dashboard con métricas básicas (citas del día, últimas transacciones)
+- License server (validación de licencias por clínica)
+- Monitoreo y alertas (uptime, errores, pagos)
+- Métricas agregadas (Prometheus / dashboards)
+- Deploy a producción en Hetzner (Caddy + Docker Compose)
+- Hardening: rate limits globales, CSP, auditoría de seguridad
