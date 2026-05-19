@@ -215,24 +215,16 @@ async function renderDentistStep(container, selection, { next }) {
     container.innerHTML = `
       <p class="subtitle">
         <strong>${escapeHtml(selection.branch.nombre)}</strong> ·
-        Selecciona el profesional:
+        Toca a tu profesional para continuar:
       </p>
-      <div class="option-list">
-        ${dentists.map((d) => {
-          const fullName = `${d.nombre} ${d.apellido ?? ''}`.trim();
-          return optionCardHtml({
-            id: `dentist-${d.id}`,
-            title: fullName,
-            subtitle: d.especialidad || 'Odontología',
-            icon: '👨‍⚕️',
-          });
-        }).join('')}
+      <div class="dentist-grid">
+        ${dentists.map((d) => dentistCardHtml(d)).join('')}
       </div>
     `;
 
-    container.querySelectorAll('.option-card').forEach((card) => {
+    container.querySelectorAll('.dentist-card').forEach((card) => {
       card.addEventListener('click', () => {
-        const id = card.dataset.id.replace('dentist-', '');
+        const id = card.dataset.id;
         selection.dentist = dentists.find((d) => d.id === id);
         next('date');
       });
@@ -240,6 +232,30 @@ async function renderDentistStep(container, selection, { next }) {
   } catch (err) {
     renderStepError(container, err);
   }
+}
+
+function dentistCardHtml(d) {
+  const fullName = `${d.nombre} ${d.apellido ?? ''}`.trim();
+  const initials  = fullName.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
+  const specialty = d.especialidad || 'Odontología';
+
+  const photoHtml = d.photo_url
+    ? `<img src="${escapeHtml('/api' + d.photo_url)}" class="dentist-card-photo"
+            alt="${escapeHtml(fullName)}"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    : '';
+  const avatarHtml = `<div class="dentist-card-avatar" style="${d.photo_url ? 'display:none' : ''}">${escapeHtml(initials)}</div>`;
+
+  return `
+    <button type="button" class="dentist-card" data-id="${escapeHtml(d.id)}">
+      <div class="dentist-card-photo-wrap">
+        ${photoHtml}
+        ${avatarHtml}
+      </div>
+      <div class="dentist-card-name">${escapeHtml(fullName)}</div>
+      <div class="dentist-card-spec">${escapeHtml(specialty)}</div>
+    </button>
+  `;
 }
 
 // ----- 3: Fecha -----

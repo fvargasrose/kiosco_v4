@@ -89,6 +89,16 @@
     .spinner { width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: 3rem; color: var(--muted); }
+
+    /* Dentist admin grid */
+    .dentist-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    .dentist-admin-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display: flex; flex-direction: column; gap: .75rem; }
+    .dentist-admin-photo-wrap { display: flex; justify-content: center; }
+    .dentist-admin-photo { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid var(--border); display: block; }
+    .dentist-admin-avatar { width: 100px; height: 100px; border-radius: 50%; background: #dbeafe; color: #1e40af; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; border: 3px solid var(--border); }
+    .dentist-admin-name { font-weight: 700; font-size: 1rem; }
+    .dentist-admin-spec { font-size: .875rem; color: var(--muted); }
+    .dentist-admin-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
   </style>
 </head>
 <body>

@@ -90,6 +90,26 @@ class AdminApiClient {
   async deleteStandbyMedia() {
     return this._fetch('/admin/clinic/standby-media', { method: 'DELETE' });
   }
+
+  // ── Dentists ──────────────────────────────────────────────────────────────
+  async getDentists() {
+    return this._fetch('/admin/dentists');
+  }
+
+  async uploadDentistPhoto(dentistId, file) {
+    const form = new FormData();
+    form.append('file', file);
+    return this._fetch(`/admin/dentists/${encodeURIComponent(dentistId)}/photo`, {
+      method: 'POST',
+      body: form,
+    });
+  }
+
+  async deleteDentistPhoto(dentistId) {
+    return this._fetch(`/admin/dentists/${encodeURIComponent(dentistId)}/photo`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export const api = new AdminApiClient();

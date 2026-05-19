@@ -684,6 +684,44 @@ class DentalinkClient {
   }
 
   /**
+   * Lista TODOS los odontólogos habilitados de la clínica (sin filtro de sucursal).
+   * Usado por el panel admin para gestionar fotos de todos los dentistas.
+   */
+  async getAllDentists(dentalinkToken: string | null): Promise<DentalinkDentist[]> {
+    const cacheKey = `dl:dentists:all`;
+    const cached = await getCached<DentalinkDentist[]>(cacheKey);
+    if (cached) return cached;
+
+    if (isMockMode(dentalinkToken)) {
+      await setCached(cacheKey, MOCK_DENTISTS, CACHE_TTL_DENTISTS);
+      return MOCK_DENTISTS;
+    }
+
+    const data = await dentalinkRequest<{
+      data?: Array<{
+        id: number;
+        nombre: string;
+        apellidos?: string;
+        especialidad?: string;
+        id_sucursal: number;
+        habilitado: number;
+      }>;
+    }>('/api/v1/dentistas', dentalinkToken!);
+
+    const list: DentalinkDentist[] = (data.data ?? [])
+      .filter((d) => d.habilitado === 1)
+      .map((d) => ({
+        id: String(d.id),
+        nombre: d.nombre,
+        apellido: d.apellidos,
+        especialidad: d.especialidad,
+        id_sucursal: d.id_sucursal,
+      }));
+    await setCached(cacheKey, list, CACHE_TTL_DENTISTS);
+    return list;
+  }
+
+  /**
    * Cancela una cita en Dentalink.
    *
    * - En mock mode: muta MOCK_APPOINTMENTS para que reflejos posteriores

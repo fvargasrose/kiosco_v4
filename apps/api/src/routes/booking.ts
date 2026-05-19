@@ -135,7 +135,26 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
       try {
         const token = await getDentalinkToken();
         const dentists = await dentalink.getDentists(branchId, token);
-        return reply.send({ data: dentists, total: dentists.length });
+
+        // Enriquecer con foto local si existe
+        const ids = dentists.map((d) => d.id);
+        const photoRows = ids.length > 0
+          ? (await db.query<{ dentalink_dentist_id: string }>(
+              `SELECT dentalink_dentist_id FROM dentist_photos
+               WHERE dentalink_dentist_id = ANY($1)`,
+              [ids],
+            )).rows
+          : [];
+        const withPhoto = new Set(photoRows.map((r) => r.dentalink_dentist_id));
+
+        const data = dentists.map((d) => ({
+          ...d,
+          photo_url: withPhoto.has(d.id)
+            ? `/public/dentist-photo/${encodeURIComponent(d.id)}`
+            : null,
+        }));
+
+        return reply.send({ data, total: data.length });
       } catch (err) {
         return handleDentalinkError(err, reply);
       }
