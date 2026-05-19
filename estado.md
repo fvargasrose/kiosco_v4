@@ -1,19 +1,18 @@
 # DentalKiosco — Estado del proyecto
-**Fecha:** 2026-05-19 · **Rama activa:** `hito9`
+**Fecha:** 2026-05-18 · **Rama activa:** `hito9`
 
 ---
 
 ## Historial de commits
 
 ```
+f27749f  feat: fotos de odontólogos en panel admin y kiosco
+aea2c3e  hito9: registro de paciente nuevo desde el kiosco
+77dccea  hito9: standby multimodal (mensaje/gif/video) — backend + admin + kiosk
+e704bdb  Docs: estado.md — snapshot del proyecto al 2026-05-19
 1872adc  Fix: booking real Dentalink — dentistas filter, slots desde horario
 90b627c  Docs: guia.md con secuencia de arranque y estado del proyecto
 4d4ead9  Proyecto montado: Hitos 1-8 validados + CLAUDE.md
-99d0cd1  Hito 8: aplicado y validado en local
-4c28fce  Hito 7: cancelación de citas + pagos Wompi (validado)
-cefed87  Hitos 5-6: aplicado y validado en local
-5387485  Fix: proxy Vite rewrite /api → / para desarrollo local
-712ccd5  Hitos 1-4: montado y validado en local
 ```
 
 ---
@@ -26,11 +25,37 @@ cefed87  Hitos 5-6: aplicado y validado en local
 | 5-6 | Auth paciente OTP (SMS mock + email Resend), perfil, citas, tratamientos | 82 | ✅ |
 | 7 | Cancelación de citas, pagos Wompi, pantalla QR | 103 | ✅ |
 | 8 | Booking 5 pasos, reconciliador, comprobantes email/SMS, migración 009 | 131 | ✅ |
-| 9 | Panel admin (clínica, kiosks, pagos pendientes, dashboard) | — | 🔲 En progreso |
+| 9 | Standby multimodal, registro paciente, fotos dentistas, panel admin | 159 | 🔄 En progreso |
 | 10 | License server, monitoreo, métricas, deploy producción | — | 🔲 Pendiente |
 
-**Tests actuales: 131 / 131 pasando.**
-**Migraciones: 9/9 aplicadas (001 → 009).**
+**Tests actuales: 159 / 159 pasando (7 archivos).**
+**Migraciones: 11/11 aplicadas (001 → 011).**
+
+---
+
+## Hito 9 — detalle de lo implementado
+
+### Standby multimodal (commit `77dccea`)
+- Migración `010_standby`: columnas `standby_mode`, `standby_title`, `standby_subtitle`, `standby_media_path`, `standby_media_hash`, `standby_media_mime`
+- Backend: `GET/PATCH /admin/clinic` con objeto `standby` anidado; `POST/DELETE/GET /admin/clinic/standby-media`; `GET /kiosk/standby`; `GET /kiosk/standby/media` (streaming)
+- Admin frontend: panel `clinic-config.js` con radio cards (mensaje/gif/video), drag-and-drop, preview
+- Kiosco: `standby.js` reescrito con IndexedDB cache (`standby-cache.js`) y 3 modos de render
+
+### Registro de paciente nuevo (commit `aea2c3e`)
+- Backend: `POST /kiosk/register` — valida con Zod + `superRefine` (3 pares confirm), consulta Dentalink duplicados, crea paciente
+- `dentalink.ts`: métodos `checkPatientExistsByEmailOrCelular()` y `createPatient()`
+- Kiosco: pantalla `register.js` — formulario único con scroll, teclado táctil (`keyboard.js`), 3 selectores DOB, sexo radio, campos confirm con validación en blur
+- Enlace "Regístrate" en pantalla `login-cedula.js`
+- Tests: 13 casos (validación, duplicados, éxito)
+
+### Fotos de odontólogos (commit `f27749f`)
+- Migración `011_dentist_photos`: tabla `dentist_photos(dentalink_dentist_id PK, photo_path, photo_hash, uploaded_at)`
+- Backend: `GET /admin/dentists` (lista con has_photo), `POST/DELETE /admin/dentists/:id/photo` (multipart, 5MB, JPEG/PNG/WebP), `GET /public/dentist-photo/:id` (sin auth, cache 1h)
+- `dentalink.ts`: método `getAllDentists()` (sin filtro de sucursal)
+- `booking.ts`: `GET /me/booking/dentists` incluye `photo_url` si existe foto
+- Admin frontend: `dentists.js` — grid de tarjetas con upload/delete por odontólogo
+- Kiosco: `booking.js` — paso de dentista reemplazado por grid con foto circular; fallback a avatar de iniciales con `onerror`
+- Tests: 15 casos (CRUD foto, público sin auth, booking con photo_url)
 
 ---
 
@@ -81,21 +106,17 @@ ON CONFLICT (version) DO NOTHING;
 
 ---
 
-## Bugs corregidos en esta sesión (rama hito9)
+## Bugs corregidos en sesiones anteriores
 
 ### Booking — "No pudimos cargar esta información" (commit `1872adc`)
-
-El flujo de agendar cita fallaba al consultar la API real de Dentalink.
 
 | Endpoint | Bug | Fix |
 |----------|-----|-----|
 | `GET /me/booking/dentists` | Usaba `?sucursal_id=1` — Dentalink requiere `q={"id_sucursal":{"eq":1}}` | Corregido formato de filtro |
-| `GET /me/booking/slots` | Llamaba `/api/v1/citas/horarios-disponibles` (no existe en Dentalink → 404) | Reemplazado por `/api/v1/horarios` del dentista + cálculo de slots del horario real |
-| `GET /me/booking/branches` | Devolvía campos extra de Dentalink (`links`, `ciudad`, etc.) | Mapeo explícito a `{id, nombre, direccion, telefono}` |
+| `GET /me/booking/slots` | Llamaba `/api/v1/citas/horarios-disponibles` (no existe → 404) | Reemplazado por `/api/v1/horarios` del dentista + cálculo de slots |
+| `GET /me/booking/branches` | Devolvía campos extra de Dentalink | Mapeo explícito |
 | Campos dentistas | `apellidos` (plural) vs `apellido` (singular); `habilitado` no filtrado | Mapeo + filtro |
-| `POST /me/booking/appointments` | IDs de paciente/dentista como string; campo `comentario` incorrecto | Corregido a numéricos + campo `comentarios` |
-
-**Nota importante:** `getAvailableSlots` en modo real no consulta citas ocupadas (Dentalink no expone ese endpoint de forma filtrable). Los slots teóricos se generan del horario del dentista; si el slot ya está tomado, Dentalink rechaza el `POST /citas` con 409.
+| `POST /me/booking/appointments` | IDs como string; campo `comentario` incorrecto | Numéricos + `comentarios` |
 
 ---
 
@@ -104,16 +125,18 @@ El flujo de agendar cita fallaba al consultar la API real de Dentalink.
 | Endpoint | Método | Funciona | Notas |
 |----------|--------|----------|-------|
 | `/api/v1/sucursales` | GET | ✅ | Sin parámetros |
-| `/api/v1/dentistas` | GET | ✅ | Requiere `q={"id_sucursal":{"eq":N}}` |
-| `/api/v1/dentistas/{id}/horarios` | GET | ✅ | Devuelve horario semanal con intervalo |
+| `/api/v1/dentistas` | GET | ✅ | Requiere `q={"id_sucursal":{"eq":N}}` o sin filtro |
+| `/api/v1/dentistas/{id}/horarios` | GET | ✅ | Horario semanal con intervalo |
 | `/api/v1/pacientes?q={"rut":{"eq":"..."}}` | GET | ✅ | Lookup por cédula |
-| `/api/v1/pacientes/{id}/citas` | GET | ✅ | Sin query params (con params → 400) |
+| `/api/v1/pacientes?q={"email":{"eq":"..."}}` | GET | ✅ | Lookup por email |
+| `/api/v1/pacientes?q={"celular":{"eq":"..."}}` | GET | ✅ | Sin prefijo +57 |
+| `/api/v1/pacientes` | POST | ✅ | Crear paciente; celular sin +57 |
+| `/api/v1/pacientes/{id}/citas` | GET | ✅ | Sin query params |
 | `/api/v1/pacientes/{id}/tratamientos` | GET | ✅ | Sin query params |
 | `/api/v1/citas/{id}` | PUT | ✅ | Cancelar con `id_estado: 3` |
 | `/api/v1/citas` | POST | ⚠️ | No probado en producción |
-| `/api/v1/citas?q=...` | GET | ❌ | Siempre 400 con cualquier filtro |
+| `/api/v1/citas?q=...` | GET | ❌ | Siempre 400 |
 | `/api/v1/citas/horarios-disponibles` | GET | ❌ | No existe (404) |
-| `/api/v1/sucursales/{id}/citas` | GET | ❌ | 400 con o sin params |
 
 ---
 
@@ -135,25 +158,14 @@ RESEND_API_KEY=re_DuPMPdxi_...     → Email OTP real a fabiavargas@gmail.com
 | PostgreSQL 16 | 5433 | ✅ docker |
 | Redis 7 | 6380 | ✅ docker |
 | API Fastify | 3000 | ✅ tsx watch |
-| Frontend Vite | 5173 | ✅ vite dev |
+| Frontend kiosco (Vite) | 5173 | ✅ vite dev |
+| Panel admin (Vite) | 5174 | ✅ vite dev |
 
 ---
 
-## Flujo de OTP (validado con usuario real)
+## Próximo paso — Hito 9 (pendiente)
 
-1. Paciente ingresa cédula (`10697021`) y teléfono (`+573206505239`)
-2. API busca en Dentalink → paciente encontrado (ID Dentalink: `4179`)
-3. OTP generado → SMS mock (log) + email real a `fabiavargas@gmail.com` vía Resend
-4. Paciente ingresa código → sesión de 10 minutos
-
----
-
-## Próximo paso — Hito 9
-
-Panel de administración web:
-- Configuración de la clínica (nombre, Dentalink token, duración de citas)
-- Gestión de kiosks (crear, activar/desactivar)
-- Vista de pagos pendientes
-- Dashboard con métricas básicas
-
-Para continuar: aplicar `previos/dentalkiosco_hito_9.zip` siguiendo el protocolo de hitos.
+Las siguientes funcionalidades del Hito 9 aún no están implementadas:
+- Gestión de kiosks (crear, activar/desactivar) desde el panel admin
+- Vista de pagos pendientes en el panel admin
+- Dashboard con métricas básicas (citas del día, últimas transacciones)

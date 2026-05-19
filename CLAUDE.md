@@ -32,19 +32,29 @@ dentalkiosco/
 │   │   │   ├── lib/           # config, crypto, db, redis, jwt, sms, email,
 │   │   │   │                  # dentalink, wompi, reconciler, notifications
 │   │   │   ├── routes/        # patient-auth, patient-me, payments, booking,
-│   │   │   │                  # admin-auth, health
+│   │   │   │                  # admin-auth, admin-clinic, admin-dentists,
+│   │   │   │                  # patient-register, kiosk, health
 │   │   │   ├── server.ts      # Entry point
 │   │   │   └── migrate.ts     # Migration runner
-│   │   ├── migrations/        # 001-009 SQL versionadas
-│   │   └── tests/             # Vitest integration tests
-│   └── kiosco-frontend/       # Vanilla JS + Vite
+│   │   ├── migrations/        # 001-011 SQL versionadas
+│   │   ├── uploads/           # Archivos subidos (standby media, fotos dentistas)
+│   │   └── tests/             # Vitest integration tests (7 archivos)
+│   ├── kiosco-frontend/       # Vanilla JS + Vite
+│   │   └── src/
+│   │       ├── screens/       # standby, login-cedula, login-otp, home,
+│   │       │                  # appointments, treatments, profile, payment,
+│   │       │                  # booking, register
+│   │       ├── components/    # keyboard.js (teclado táctil)
+│   │       ├── lib/           # standby-cache.js (IndexedDB)
+│   │       ├── api.js         # HTTP client
+│   │       ├── state.js       # Estado global
+│   │       ├── router.js      # Navegación entre pantallas
+│   │       └── idle.js        # Detector de inactividad
+│   └── admin-frontend/        # Panel admin — Vanilla JS + Vite
 │       └── src/
-│           ├── screens/       # standby, login-cedula, login-otp, home,
-│           │                  # appointments, treatments, profile, payment, booking
-│           ├── api.js         # HTTP client
-│           ├── state.js       # Estado global
-│           ├── router.js      # Navegación entre pantallas
-│           └── idle.js        # Detector de inactividad
+│           ├── screens/       # login, clinic-config, dentists
+│           ├── api.js         # HTTP client (token en localStorage)
+│           └── main.js        # Bootstrap + enrutador lateral
 ├── packages/                  # (vacío por ahora, reservado para shared libs)
 ├── docker-compose.yml
 ├── docker-compose.override.yml  # Puertos locales: postgres 5433, redis 6380
@@ -90,7 +100,7 @@ DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api typecheck
 
 ```bash
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api test
-# → 131 tests al final del Hito 8 (5 archivos)
+# → 159 tests (7 archivos) al final del Hito 9 parcial
 # Los tests siempre corren en mock mode (vitest.config.ts fuerza DEV_MOCK_EXTERNAL_SERVICES=true)
 ```
 
@@ -111,11 +121,22 @@ pnpm --filter @dentalkiosco/kiosco-frontend dev
 # Proxy /api → http://localhost:3000 (reescribe path: quita /api)
 ```
 
-### Build de producción del frontend
+### Arrancar panel admin (desarrollo)
+
+```bash
+pnpm --filter @dentalkiosco/admin-frontend dev
+# Vite dev server en http://localhost:5174
+# Proxy /api → http://localhost:3000
+```
+
+### Build de producción de los frontends
 
 ```bash
 pnpm --filter @dentalkiosco/kiosco-frontend build
-# Output: apps/kiosco-frontend/dist/  (~25 KB gzipped al Hito 8)
+# Output: apps/kiosco-frontend/dist/  (~89 KB gzipped ~26 KB)
+
+pnpm --filter @dentalkiosco/admin-frontend build
+# Output: apps/admin-frontend/dist/  (~20 KB gzipped ~6 KB)
 ```
 
 ### Conectar al kiosco (primer arranque)
@@ -210,8 +231,16 @@ Siempre re-aplicarla después de sobrescribir `dentalink.ts`.
 | 5-6 | Auth paciente OTP, perfil, citas, tratamientos (frontend kiosco) | ✅ Completado y validado |
 | 7 | Cancelación de citas + pagos Wompi + pantalla QR | ✅ Completado y validado |
 | 8 | Booking (agendar cita), reconciliador, comprobantes, migración 009 | ✅ Completado y validado |
-| 9 | Panel admin (clínica, kiosks, pagos pendientes, dashboard) | 🔲 Pendiente |
+| 9 | Panel admin — standby multimodal, registro paciente, fotos dentistas | 🔄 En progreso |
 | 10 | License server, monitoreo, métricas, deploy producción | 🔲 Pendiente |
+
+### Hito 9 — funcionalidades implementadas hasta ahora
+
+| Función | Rutas backend | Tests |
+|---------|--------------|-------|
+| Standby multimodal (mensaje/gif/video) | `GET/PATCH /admin/clinic`, `POST/DELETE/GET /admin/clinic/standby-media`, `GET /kiosk/standby`, `GET /kiosk/standby/media` | — |
+| Registro paciente nuevo desde kiosco | `POST /kiosk/register` | 13 |
+| Fotos de odontólogos (admin + kiosco) | `GET/POST/DELETE /admin/dentists/:id/photo`, `GET /public/dentist-photo/:id` | 15 |
 
 **Regla de trabajo:** cada hito nuevo se extrae, aplica, type-check, tests y
 valida **antes** de pedir el siguiente. Nunca se reconstruyen hitos previos ni
@@ -282,7 +311,7 @@ siempre). Verificar con `migrate:status` después de cada hito.
 
 | Tabla | Propósito |
 |-------|-----------|
-| `clinic` | Singleton (id=1): config clínica, tokens cifrados, Habeas Data |
+| `clinic` | Singleton (id=1): config clínica, tokens cifrados, Habeas Data, standby |
 | `admins` | Administradores con MFA TOTP |
 | `kiosks` | Dispositivos pareados (token_hash, is_active) |
 | `otp_codes` | Códigos OTP con TTL, intentos y consumed_at |
@@ -291,6 +320,7 @@ siempre). Verificar con `migrate:status` después de cada hito.
 | `transactions` | Pagos Wompi (reference, status, receipt_sent_at) |
 | `audit_log` | Auditoría de todas las acciones |
 | `rate_limits` | Contadores de rate limiting (sobreviven reinicios) |
+| `dentist_photos` | Fotos de odontólogos (dentalink_dentist_id, path, hash) |
 | `schema_migrations` | Migraciones aplicadas (version, name, checksum) |
 
 ---

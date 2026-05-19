@@ -8,10 +8,11 @@
 | 5-6 | Auth paciente OTP (SMS + email), perfil, citas, tratamientos | 82 | ✅ Validado |
 | 7 | Cancelación de citas + pagos Wompi + pantalla QR | 103 | ✅ Validado |
 | 8 | Booking (agendar cita), reconciliador, comprobantes, migración 009 | 131 | ✅ Validado |
-| 9 | Panel admin (clínica, kiosks, pagos pendientes, dashboard) | — | 🔲 Pendiente |
+| 9 | Standby multimodal, registro paciente, fotos dentistas, panel admin | 159 | 🔄 En progreso |
 | 10 | License server, monitoreo, métricas, deploy producción | — | 🔲 Pendiente |
 
-**Migraciones**: 9/9 aplicadas (001 → 009).
+**Migraciones**: 11/11 aplicadas (001 → 011).
+**Tests actuales**: 159 / 159 pasando (7 archivos).
 
 ---
 
@@ -85,6 +86,19 @@ pnpm --filter @dentalkiosco/kiosco-frontend dev
 
 ---
 
+### 5b. (Opcional) Arrancar el panel admin
+
+```bash
+cd /home2/kiosco_v3_produccion_18_05_26/dentalkiosco
+pnpm --filter @dentalkiosco/admin-frontend dev
+```
+
+- Panel en `http://localhost:5174`
+- Login con credenciales de administrador (tabla `admins`)
+- Secciones: Configuración clínica · Odontólogos
+
+---
+
 ### 6. Conectar al kiosco (primer acceso del día)
 
 El frontend necesita un `kiosk_token` JWT. Para obtenerlo:
@@ -119,11 +133,12 @@ Luego abre: `http://localhost:5173/?kiosk_token=<token>`
 cd /home2/kiosco_v3_produccion_18_05_26/dentalkiosco
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api typecheck
 
-# Tests (131 en total, siempre en mock mode)
+# Tests (159 en total, siempre en mock mode)
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api test
 
-# Build de producción del frontend
+# Build de producción de los frontends
 pnpm --filter @dentalkiosco/kiosco-frontend build
+pnpm --filter @dentalkiosco/admin-frontend build
 
 # Estado de migraciones
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api migrate:status
