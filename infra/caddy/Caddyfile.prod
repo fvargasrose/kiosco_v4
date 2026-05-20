@@ -1,0 +1,111 @@
+# =============================================================================
+# Caddyfile.prod - DentalKiosco (PRODUCCIÓN)
+# =============================================================================
+# Igual que Caddyfile pero sin local_certs → Caddy usa Let's Encrypt ACME.
+# Usado por docker-compose.prod.yml.
+# =============================================================================
+
+{
+    # Configuración global
+    email {$CADDY_EMAIL}
+
+    # Logs
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+
+    # Métricas para Prometheus
+    servers {
+        metrics
+    }
+}
+
+# Sitio principal
+{$CADDY_DOMAIN} {
+    # Headers de seguridad globales
+    header {
+        # HSTS
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+        # Prevenir MIME sniffing
+        X-Content-Type-Options "nosniff"
+
+        # Prevenir clickjacking
+        X-Frame-Options "DENY"
+
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Permissions policy - bloquear APIs sensibles
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+        # Ocultar versión del servidor
+        -Server
+    }
+
+    # Compresión
+    encode gzip zstd
+
+    # Logs de acceso
+    log {
+        output stdout
+        format json
+    }
+
+    # ----- Health check (público, sin auth) -----
+    handle /health {
+        reverse_proxy api:3000
+    }
+
+    # ----- API backend -----
+    handle /api/* {
+        reverse_proxy api:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
+        }
+    }
+
+    # ----- Webhooks (validados en backend con HMAC) -----
+    handle /webhooks/* {
+        reverse_proxy api:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+    # ----- Panel admin (estático) -----
+    handle /admin* {
+        root * /srv/admin
+        try_files {path} {path}.html /admin/index.html
+        file_server
+
+        header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    }
+
+    # ----- Frontend kiosco (estático, ruta por defecto) -----
+    handle {
+        root * /srv/kiosco
+        try_files {path} /index.html
+        file_server
+
+        header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.qrserver.com; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+        @html {
+            path *.html
+        }
+        header @html Cache-Control "no-cache, no-store, must-revalidate"
+
+        @assets {
+            path *.css *.js *.png *.jpg *.svg *.woff2
+        }
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+    }
+}

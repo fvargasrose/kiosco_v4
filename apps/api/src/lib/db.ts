@@ -24,8 +24,8 @@ class Database {
       max: 10, // máximo conexiones simultáneas
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
-      // SSL: requerido en producción, opcional en local
-      ssl: config.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
+      // Red interna Docker — SSL desactivado (todo el tráfico es localhost/bridge)
+      ssl: false,
     });
 
     this.pool.on('error', (err) => {

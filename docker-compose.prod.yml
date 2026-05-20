@@ -1,0 +1,18 @@
+# =============================================================================
+# docker-compose.prod.yml — Override de producción
+# =============================================================================
+# Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Diferencias respecto al compose base:
+#   - Caddy usa Caddyfile.prod (sin local_certs → Let's Encrypt real)
+#   - Sin puertos debug (postgres y redis no expuestos al host)
+# =============================================================================
+
+services:
+  caddy:
+    volumes:
+      - ./infra/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./apps/kiosco-frontend/dist:/srv/kiosco:ro
+      - ./apps/admin-frontend/dist:/srv/admin:ro
