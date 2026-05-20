@@ -138,7 +138,7 @@ let MOCK_PATIENTS: DentalinkPatient[] = MOCK_PATIENTS_INITIAL.map((p) => ({ ...p
 const MOCK_APPOINTMENTS_INITIAL: DentalinkAppointment[] = [
   {
     id: 'apt-001',
-    fecha: '2026-05-20',
+    fecha: '2026-08-15',
     hora_inicio: '10:00',
     hora_fin: '10:30',
     estado: 'Reservada',

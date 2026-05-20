@@ -32,6 +32,8 @@ import { adminKioskRoutes } from './routes/admin-kiosks.js';
 import { adminTransactionRoutes } from './routes/admin-transactions.js';
 import { adminDashboardRoutes } from './routes/admin-dashboard.js';
 import { startReconciler, stopReconciler } from './lib/reconciler.js';
+import { startLicenseWorker, stopLicenseWorker } from './lib/license/worker.js';
+import { licenseMiddleware } from './lib/license/middleware.js';
 
 /**
  * Construye e inicializa el servidor Fastify.
@@ -66,6 +68,9 @@ export async function buildServer() {
       files: 1,
     },
   });
+
+  // Middleware de licencia — se aplica antes de cualquier ruta
+  app.addHook('onRequest', licenseMiddleware);
 
   // Manejador global de errores
   app.setErrorHandler((error, request, reply) => {
@@ -143,6 +148,9 @@ async function start() {
       host: '0.0.0.0',
     });
 
+    // Licencia: validar y arrancar worker de heartbeat (bloquea hasta primer check)
+    await startLicenseWorker();
+
     // Hito 8: arrancar el reconciliador de pagos
     startReconciler();
 
@@ -163,6 +171,7 @@ async function start() {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutting down...');
     try {
+      stopLicenseWorker();
       stopReconciler();
       if (app) await app.close();
       logger.info('Shutdown complete');

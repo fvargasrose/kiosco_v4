@@ -1,0 +1,33 @@
+{
+  "name": "@dentalkiosco/license-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts up",
+    "migrate:status": "tsx src/migrate.ts status",
+    "migrate:verify": "tsx src/migrate.ts verify"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/sensible": "^5.6.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.27.0",
+    "pg": "^8.11.5",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/pg": "^8.11.5",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.0"
+  }
+}
