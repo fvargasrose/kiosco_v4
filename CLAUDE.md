@@ -3,9 +3,10 @@
 ## Descripción del proyecto
 
 Kiosco de autoatención para clínicas dentales. El paciente se identifica con
-cédula + OTP (SMS/email), consulta sus citas y tratamientos, agenda, cancela,
-y puede pagar saldos pendientes con Wompi (QR). El administrador de la clínica
-configura el sistema desde un panel web.
+cédula + OTP (SMS/email) o solo cédula + teléfono (según `OTP_REQUIRED`),
+consulta sus citas y tratamientos, agenda, cancela, y puede pagar saldos
+pendientes con Wompi (QR). El administrador configura el sistema desde un
+panel web. El sistema incluye servidor de licencias, update manager e installer.
 
 ### Stack
 
@@ -15,8 +16,10 @@ configura el sistema desde un panel web.
 | Base de datos | PostgreSQL 16 (pgcrypto para cifrado en reposo) |
 | Caché / sesiones | Redis 7 (ioredis) |
 | Frontend kiosco | Vanilla JS (ES modules) · Vite 5 (sin framework) |
+| Frontend admin | Vanilla JS · Vite 5 |
 | Monorepo | pnpm workspaces |
-| Contenedores dev | Docker Compose |
+| Proxy / TLS | Caddy 2 (Let's Encrypt automático) |
+| Contenedores prod | Docker Compose + Dockerfile multi-stage |
 | Pagos | Wompi (Colombia) |
 | SMS | Twilio (opcional, mockeable) |
 | Email | Resend (opcional, mockeable) |
@@ -30,34 +33,53 @@ dentalkiosco/
 │   ├── api/                   # Backend Fastify
 │   │   ├── src/
 │   │   │   ├── lib/           # config, crypto, db, redis, jwt, sms, email,
-│   │   │   │                  # dentalink, wompi, reconciler, notifications
+│   │   │   │                  # dentalink, wompi, reconciler, notifications,
+│   │   │   │                  # license/{cache,client,fingerprint,middleware,worker}
 │   │   │   ├── routes/        # patient-auth, patient-me, payments, booking,
 │   │   │   │                  # admin-auth, admin-clinic, admin-dentists,
+│   │   │   │                  # admin-kiosks, admin-transactions, admin-dashboard,
 │   │   │   │                  # patient-register, kiosk, health
 │   │   │   ├── server.ts      # Entry point
-│   │   │   └── migrate.ts     # Migration runner
+│   │   │   ├── migrate.ts     # Migration runner
+│   │   │   └── setup.ts       # CLI: create-admin (usado por el installer)
 │   │   ├── migrations/        # 001-011 SQL versionadas
 │   │   ├── uploads/           # Archivos subidos (standby media, fotos dentistas)
-│   │   └── tests/             # Vitest integration tests (7 archivos)
-│   ├── kiosco-frontend/       # Vanilla JS + Vite
+│   │   └── tests/             # 10 archivos · 195 tests (Vitest)
+│   ├── kiosco-frontend/       # Vanilla JS + Vite → dist/
 │   │   └── src/
 │   │       ├── screens/       # standby, login-cedula, login-otp, home,
 │   │       │                  # appointments, treatments, profile, payment,
-│   │       │                  # booking, register
+│   │       │                  # booking, register, habeas-data
 │   │       ├── components/    # keyboard.js (teclado táctil)
 │   │       ├── lib/           # standby-cache.js (IndexedDB)
-│   │       ├── api.js         # HTTP client
+│   │       ├── api.js         # HTTP client (incluye loginDirect para sin-OTP)
 │   │       ├── state.js       # Estado global
 │   │       ├── router.js      # Navegación entre pantallas
 │   │       └── idle.js        # Detector de inactividad
-│   └── admin-frontend/        # Panel admin — Vanilla JS + Vite
+│   └── admin-frontend/        # Panel admin — Vanilla JS + Vite → dist/
 │       └── src/
-│           ├── screens/       # login, clinic-config, dentists
+│           ├── screens/       # login, dashboard, clinic-config, dentists,
+│           │                  # kiosks, transactions
 │           ├── api.js         # HTTP client (token en localStorage)
 │           └── main.js        # Bootstrap + enrutador lateral
-├── packages/                  # (vacío por ahora, reservado para shared libs)
-├── docker-compose.yml
-├── docker-compose.override.yml  # Puertos locales: postgres 5433, redis 6380
+├── central/
+│   └── license-server/        # Servidor central de licencias (Node + Fastify + pg)
+├── installer/
+│   └── install.sh             # Script de instalación en Ubuntu 22.04/24.04
+├── updater/
+│   ├── update.sh              # Update manager con rollback y firma GPG
+│   └── dk_update_pub.gpg      # Placeholder — reemplazar con clave GPG real
+├── infra/
+│   ├── caddy/
+│   │   ├── Caddyfile          # Dev (local_certs)
+│   │   └── Caddyfile.prod     # Producción (Let's Encrypt)
+│   └── wireguard/
+├── docker-compose.yml         # Stack completo (Caddy + API + Postgres + Redis)
+├── docker-compose.override.yml  # Dev: expone postgres:5433 y redis:6380 al host
+├── docker-compose.prod.yml    # Prod: usa Caddyfile.prod
+├── guia.md                    # Guía de desarrollo local detallada
+├── produccion.md              # Guía de deploy en Hetzner + mantenimiento
+├── estado.md                  # Estado de hitos + bugs + API endpoints
 └── .env                       # Variables de entorno (NUNCA commitear)
 ```
 
@@ -65,148 +87,143 @@ dentalkiosco/
 
 ## Comandos clave
 
-### Docker — levantar servicios locales
+### Docker — servicios locales
 
 ```bash
-# Desde dentalkiosco/
-docker compose up -d
-# PostgreSQL escucha en :5433 (override local para no chocar con :5432)
-# Redis escucha en :6380
+# Solo infraestructura (forma correcta en dev — API corre fuera de Docker)
+docker compose up -d postgres redis
+
+# Ver estado
+docker compose ps
 ```
 
 ### Instalar dependencias
 
 ```bash
-# Desde dentalkiosco/ — instala todo el monorepo
 pnpm install
 ```
 
 ### Migraciones
 
 ```bash
-# Siempre desde dentalkiosco/ (DOTENV_CONFIG_PATH necesario porque pnpm cambia CWD)
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api migrate         # aplica pendientes
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api migrate:status  # estado
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api migrate:verify  # checksums
 ```
 
-### Type-check
+### Type-check y tests
 
 ```bash
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api typecheck
-```
-
-### Tests
-
-```bash
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api test
-# → 159 tests (7 archivos) al final del Hito 9 parcial
-# Los tests siempre corren en mock mode (vitest.config.ts fuerza DEV_MOCK_EXTERNAL_SERVICES=true)
+# → 195 tests · 10 archivos · siempre en mock mode
 ```
 
 ### Arrancar API (desarrollo)
 
 ```bash
-# Desde dentalkiosco/
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api dev
-# Servidor en http://localhost:3000
-# tsx watch — recarga automática al modificar archivos
+# http://localhost:3000 · tsx watch (no recarga .env — reiniciar manualmente si cambia)
 ```
 
-### Arrancar frontend (desarrollo)
+### Arrancar frontends (desarrollo)
 
 ```bash
-pnpm --filter @dentalkiosco/kiosco-frontend dev
-# Vite dev server en http://localhost:5173
-# Proxy /api → http://localhost:3000 (reescribe path: quita /api)
+pnpm --filter @dentalkiosco/kiosco-frontend dev   # http://localhost:5173
+pnpm --filter @dentalkiosco/admin-frontend dev    # http://localhost:5174
 ```
 
-### Arrancar panel admin (desarrollo)
+### Build de producción
 
 ```bash
-pnpm --filter @dentalkiosco/admin-frontend dev
-# Vite dev server en http://localhost:5174
-# Proxy /api → http://localhost:3000
+pnpm --filter @dentalkiosco/kiosco-frontend build  # → apps/kiosco-frontend/dist/
+pnpm --filter @dentalkiosco/admin-frontend build   # → apps/admin-frontend/dist/
 ```
 
-### Build de producción de los frontends
+### Crear primer admin
 
 ```bash
-pnpm --filter @dentalkiosco/kiosco-frontend build
-# Output: apps/kiosco-frontend/dist/  (~89 KB gzipped ~26 KB)
-
-pnpm --filter @dentalkiosco/admin-frontend build
-# Output: apps/admin-frontend/dist/  (~20 KB gzipped ~6 KB)
+DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api exec tsx src/setup.ts \
+  create-admin --email admin@demo.local --password "Admin@Demo2026" --name "Demo Admin"
 ```
 
-### Conectar al kiosco (primer arranque)
-
-El frontend necesita un `kiosk_token` JWT en `sessionStorage`. Para desarrollo:
-1. Obtener el `id` del kiosco desde la tabla `kiosks` en PostgreSQL
-2. Generar el JWT con el `JWT_SECRET` del `.env` (audience: `"kiosk"`, issuer: `"dentalkiosco"`)
-3. Pasarlo en la URL: `http://localhost:5173/?kiosk_token=<token>`
+Idempotente (ON CONFLICT DO NOTHING). En producción, el installer lo llama automáticamente.
 
 ---
 
 ## Variables de entorno críticas
 
-El archivo `.env` vive en la raíz del monorepo (`dentalkiosco/.env`).
-**Nunca se commitea.** Las variables más importantes:
-
 ```bash
-# Bases de datos
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433        # Override local
+# ── Desarrollo ──
+POSTGRES_HOST=localhost        # (en dev, fuera de Docker)
+POSTGRES_PORT=5433             # override del docker-compose.override.yml
 REDIS_HOST=localhost
-REDIS_PORT=6380           # Override local
+REDIS_PORT=6380
+JWT_SECRET=...                 # ≥ 32 chars
+ENCRYPTION_KEY=...             # ≥ 32 chars
 
-# Cifrado y JWT
-JWT_SECRET=...            # ≥32 chars
-ENCRYPTION_KEY=...        # Base64, usado por pgcrypto via fn_encrypt/fn_decrypt
+# ── Licencia ──
+LICENSE_DEV_MODE=true          # true = sin verificación (desarrollo)
+LICENSE_KEY=DEV-LOCAL-...      # ignorado si LICENSE_DEV_MODE=true
 
-# Dentalink
-DENTALINK_TOKEN=...       # Token API de Dentalink (también se guarda cifrado en clinic.dentalink_token_encrypted)
-DENTALINK_API_URL=https://api.dentalink.healthatom.com
-
-# Resend (email OTP y comprobantes)
-RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=onboarding@resend.dev   # dominio verificado o sandbox de Resend
-
-# Wompi (pagos)
-WOMPI_PUBLIC_KEY=...
-WOMPI_PRIVATE_KEY=...
-WOMPI_EVENTS_SECRET=...
-WOMPI_INTEGRITY_SECRET=...
-
-# Modo mock (desarrollo)
-DEV_MOCK_EXTERNAL_SERVICES=false   # true = mock Dentalink, Twilio, Resend, Wompi
-DEV_MOCK_WOMPI=true                # true = mock solo Wompi (sin afectar Dentalink)
-DEV_LOG_OTP=true                   # Muestra el código OTP en los logs del servidor
+# ── Funcionalidades ──
+OTP_REQUIRED=true              # false = login sin código (solo cédula + teléfono)
+DEV_MOCK_EXTERNAL_SERVICES=false  # true = mock Dentalink + Twilio + Resend + Wompi
+DEV_MOCK_WOMPI=true            # true = mock solo Wompi
+DEV_LOG_OTP=true               # muestra OTP en logs
 ```
 
-> **Bug conocido resuelto:** `z.coerce.boolean()` de Zod interpreta el string
-> `"false"` como `true` (JavaScript coercion). Se usa el helper `boolEnv()` en
-> `config.ts` para todas las variables booleanas. Si se añaden nuevas vars
-> booleanas, usar `boolEnv(false)` en lugar de `z.coerce.boolean().default(false)`.
+> **Bug resuelto:** `z.coerce.boolean()` interpreta `"false"` como `true`.
+> Usar siempre `boolEnv()` para vars booleanas (ver sección Fixes).
+
+---
+
+## OTP_REQUIRED — autenticación sin código
+
+Cuando `OTP_REQUIRED=false`:
+- El backend expone `POST /auth/login-direct` (valida cédula + teléfono, sin OTP)
+- El frontend (`login-cedula.js`) bifurca el flujo y salta `login-otp`
+- Habeas Data sigue apareciendo siempre
+- El flag se expone en `GET /kiosk/bootstrap` → `{ otp_required: bool }`
+
+**Cambiar en producción:**
+```bash
+sed -i 's/^OTP_REQUIRED=.*/OTP_REQUIRED=false/' /opt/dentalkiosco/.env
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart api
+```
+
+---
+
+## Modo licencia
+
+El middleware `licenseMiddleware` se aplica como `onRequest` hook a todas las rutas.
+
+| Variable | Efecto |
+|----------|--------|
+| `LICENSE_DEV_MODE=true` | Omite todo control de licencia |
+| Sin heartbeat < 7 días | Modo `normal` — sin restricciones |
+| Sin heartbeat 7–14 días | Modo `restrictive` — GETs pasan, escrituras → 503 |
+| Sin heartbeat > 14 días o revocada | Modo `shutdown` — todo → 503 |
+
+El modo se computa dinámicamente en `computeMode()` (cache.ts) — nunca se baja al estado en caché.
 
 ---
 
 ## Modo desarrollo con mocks
 
-Con `DEV_MOCK_EXTERNAL_SERVICES=false` y `DEV_MOCK_WOMPI=true` (configuración actual):
+Configuración actual del `.env` de desarrollo:
 
-- **Dentalink**: llama a la API real. El token se descifra de `clinic.dentalink_token_encrypted`.
-- **SMS (Twilio)**: mock — el código OTP aparece en el log del servidor (`[MOCK SMS]`).
-- **Email (Resend)**: real — el OTP y los comprobantes se envían a `fabiavargas@gmail.com`
-  (el email registrado del paciente en Dentalink).
-- **Wompi**: mock — genera payment links falsos; el polling queda en `PENDING` hasta
-  que se simule un webhook manualmente.
+| Variable | Valor | Efecto |
+|----------|-------|--------|
+| `DEV_MOCK_EXTERNAL_SERVICES` | `false` | Dentalink real; Twilio mock; Resend real |
+| `DEV_MOCK_WOMPI` | `true` | Wompi simulado |
+| `DEV_LOG_OTP` | `true` | OTP visible en log |
 
-Para simular un pago aprobado en mock:
+Para simular un pago aprobado con Wompi mock:
 ```bash
 curl -X POST http://localhost:3000/webhooks/wompi \
   -H "Content-Type: application/json" \
-  -d '{"event":"transaction.updated","data":{"transaction":{"reference":"<ref>","status":"APPROVED","amount_in_cents":100000}},"sent_at":"2026-05-19T00:00:00Z","signature":{"checksum":"mock","properties":[]}}'
+  -d '{"event":"transaction.updated","data":{"transaction":{"reference":"<ref>","status":"APPROVED","amount_in_cents":100000}},"sent_at":"2026-05-20T00:00:00Z","signature":{"checksum":"mock","properties":[]}}'
 ```
 
 ---
@@ -218,8 +235,7 @@ El frontend siempre envía `"+57XXXXXXXXXX"`.
 La función `normalizeCelular()` en `apps/api/src/lib/dentalink.ts` añade `+57`
 a números colombianos de 10 dígitos que empiecen en 3.
 
-**Esta función se pierde en cada parche incremental** (los hitos la omiten).
-Siempre re-aplicarla después de sobrescribir `dentalink.ts`.
+**Esta función se pierde en cada parche incremental.** Siempre re-aplicarla.
 
 ---
 
@@ -227,47 +243,29 @@ Siempre re-aplicarla después de sobrescribir `dentalink.ts`.
 
 | Hito | Descripción | Estado |
 |------|-------------|--------|
-| 1-4 | Base: servidor, auth admin, DB, Redis, kiosk pairing | ✅ Completado y validado |
-| 5-6 | Auth paciente OTP, perfil, citas, tratamientos (frontend kiosco) | ✅ Completado y validado |
-| 7 | Cancelación de citas + pagos Wompi + pantalla QR | ✅ Completado y validado |
-| 8 | Booking (agendar cita), reconciliador, comprobantes, migración 009 | ✅ Completado y validado |
-| 9 | Panel admin — standby multimodal, registro paciente, fotos dentistas | 🔄 En progreso |
-| 10 | License server, monitoreo, métricas, deploy producción | 🔲 Pendiente |
-
-### Hito 9 — funcionalidades implementadas hasta ahora
-
-| Función | Rutas backend | Tests |
-|---------|--------------|-------|
-| Standby multimodal (mensaje/gif/video) | `GET/PATCH /admin/clinic`, `POST/DELETE/GET /admin/clinic/standby-media`, `GET /kiosk/standby`, `GET /kiosk/standby/media` | — |
-| Registro paciente nuevo desde kiosco | `POST /kiosk/register` | 13 |
-| Fotos de odontólogos (admin + kiosco) | `GET/POST/DELETE /admin/dentists/:id/photo`, `GET /public/dentist-photo/:id` | 15 |
-
-**Regla de trabajo:** cada hito nuevo se extrae, aplica, type-check, tests y
-valida **antes** de pedir el siguiente. Nunca se reconstruyen hitos previos ni
-se mezclan cambios de hitos distintos en el mismo commit.
+| 1–4 | Servidor, auth admin, DB, Redis, kiosk pairing | ✅ |
+| 5–6 | Auth paciente OTP, perfil, citas, tratamientos | ✅ |
+| 7 | Cancelación de citas + pagos Wompi + QR | ✅ |
+| 8 | Booking, reconciliador, comprobantes | ✅ |
+| 9 | Panel admin completo, standby, registro, fotos | ✅ |
+| 10 | License server + Update manager + Installer | 🔄 En progreso |
 
 ---
 
 ## Fixes locales a re-aplicar en cada parche
 
-Los archivos de parche vienen del proveedor sin estos fixes. Aplicarlos siempre
-después de sobrescribir los archivos indicados:
-
 ### 1. `apps/api/src/lib/config.ts`
-Añadir el helper `boolEnv` al inicio y usarlo en todas las vars booleanas:
 ```typescript
 const boolEnv = (defaultVal: boolean) =>
   z.preprocess(
     (v) => (v === 'true' ? true : v === 'false' ? false : v),
     z.boolean(),
   ).default(defaultVal);
-// Reemplazar z.coerce.boolean().default(X) → boolEnv(X)
-// Variables afectadas: LICENSE_DEV_MODE, DEV_MOCK_EXTERNAL_SERVICES,
-//                      DEV_LOG_OTP, DEV_MOCK_WOMPI
+// Afecta: LICENSE_DEV_MODE, OTP_REQUIRED, DEV_MOCK_EXTERNAL_SERVICES,
+//         DEV_LOG_OTP, DEV_MOCK_WOMPI
 ```
 
 ### 2. `apps/api/src/lib/dentalink.ts`
-Añadir después de `const REQUEST_TIMEOUT_MS`:
 ```typescript
 function normalizeCelular(celular: string): string {
   if (!celular) return celular;
@@ -275,19 +273,12 @@ function normalizeCelular(celular: string): string {
   if (/^3\d{9}$/.test(celular)) return `+57${celular}`;
   return celular;
 }
-```
-Y en `lookupPatientByCedula`, reemplazar:
-```typescript
-const patient = data.data?.[0] ?? null;
-```
-por:
-```typescript
+// En lookupPatientByCedula:
 const raw = data.data?.[0] ?? null;
 const patient = raw ? { ...raw, celular: normalizeCelular(raw.celular) } : null;
 ```
 
 ### 3. `apps/api/vitest.config.ts`
-Añadir `env` al bloque `test` para que los tests nunca llamen APIs reales:
 ```typescript
 env: {
   DEV_MOCK_EXTERNAL_SERVICES: 'true',
@@ -296,14 +287,11 @@ env: {
 ```
 
 ### 4. Migraciones SQL nuevas
-Cada archivo `.sql` nuevo debe terminar con:
 ```sql
 INSERT INTO schema_migrations (version, name)
 VALUES ('NNN', 'nombre_sin_numero')
 ON CONFLICT (version) DO NOTHING;
 ```
-Si falta, el migrador aplica el DDL pero no lo registra (queda como pendiente
-siempre). Verificar con `migrate:status` después de cada hito.
 
 ---
 
@@ -312,13 +300,13 @@ siempre). Verificar con `migrate:status` después de cada hito.
 | Tabla | Propósito |
 |-------|-----------|
 | `clinic` | Singleton (id=1): config clínica, tokens cifrados, Habeas Data, standby |
-| `admins` | Administradores con MFA TOTP |
+| `admins` | Administradores con hash argon2id + MFA TOTP opcional |
 | `kiosks` | Dispositivos pareados (token_hash, is_active) |
 | `otp_codes` | Códigos OTP con TTL, intentos y consumed_at |
 | `patient_sessions` | Sesiones de paciente (jti, revoked_at) |
 | `habeas_data_consents` | Consentimientos por cédula_hash + versión política |
 | `transactions` | Pagos Wompi (reference, status, receipt_sent_at) |
-| `audit_log` | Auditoría de todas las acciones |
+| `audit_log` | Auditoría inmutable de todas las acciones |
 | `rate_limits` | Contadores de rate limiting (sobreviven reinicios) |
 | `dentist_photos` | Fotos de odontólogos (dentalink_dentist_id, path, hash) |
 | `schema_migrations` | Migraciones aplicadas (version, name, checksum) |
@@ -327,11 +315,30 @@ siempre). Verificar con `migrate:status` después de cada hito.
 
 ## Reconciliador
 
-Corre cada minuto como un `setInterval` dentro del proceso del API.
-Se ve en los logs como:
+Corre cada minuto como `setInterval` dentro del proceso del API.
+Detecta transacciones en estado `PENDING` cuyo estado real en Wompi es `APPROVED` o `DECLINED`.
 ```
 [INFO] Reconciler started
-[INFO] Reconciler cycle start
 [INFO] Reconciler cycle end  { processed: N, errors: N, expired: N }
 ```
-No requiere configuración adicional. Se detiene limpiamente en el shutdown del servidor.
+
+---
+
+## Producción — resumen Docker
+
+```bash
+# Levantar stack completo
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Reconstruir API y reiniciar
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build api
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart api
+
+# Aplicar migraciones
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api node dist/migrate.js up
+
+# Health check
+curl https://<dominio>/health/ready | jq .
+```
+
+Ver `produccion.md` para la guía completa de deploy en Hetzner.
