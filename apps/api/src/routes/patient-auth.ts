@@ -519,6 +519,163 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * POST /auth/login-direct
+   *
+   * Autenticación sin OTP: solo cédula + teléfono.
+   * Solo disponible cuando OTP_REQUIRED=false en el servidor.
+   * Valida que el teléfono coincida con el registrado en Dentalink para esa cédula.
+   */
+  app.post('/auth/login-direct', async (request, reply) => {
+    if (config.OTP_REQUIRED) {
+      return reply.code(403).send({ error: 'OTP_REQUIRED' });
+    }
+
+    // 1. Validar input (mismo schema que request-otp)
+    const parsed = RequestOtpBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: 'INVALID_INPUT',
+        details: parsed.error.flatten(),
+      });
+    }
+    const { cedula, phone, policy_version, policy_hash } = parsed.data;
+
+    // 2. Validar kiosk_token
+    const kioskTokenStr = extractBearer(request.headers.authorization);
+    if (!kioskTokenStr) {
+      return reply.code(401).send({ error: 'KIOSK_TOKEN_REQUIRED' });
+    }
+
+    let kioskClaims;
+    try {
+      kioskClaims = await verifyKioskToken(kioskTokenStr);
+    } catch {
+      return reply.code(401).send({ error: 'INVALID_KIOSK_TOKEN' });
+    }
+
+    const kioskId = kioskClaims.sub;
+
+    // 3. Verificar que el kiosco está activo
+    const kioskResult = await db.query<{ is_active: boolean }>(
+      `SELECT is_active FROM kiosks WHERE id = $1`,
+      [kioskId],
+    );
+    if (!kioskResult.rows[0]?.is_active) {
+      return reply.code(403).send({ error: 'KIOSK_INACTIVE' });
+    }
+
+    // 4. Rate limiting (reutiliza los mismos buckets que OTP)
+    const buckets = [
+      { key: `otp:phone:${phone}`, max: config.RATE_LIMIT_OTP_PER_PHONE_PER_HOUR, secs: 3600 },
+      { key: `otp:ip:${request.ip}`, max: config.RATE_LIMIT_OTP_PER_IP_PER_HOUR, secs: 3600 },
+      { key: `otp:kiosk:${kioskId}`, max: config.RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR, secs: 3600 },
+    ];
+    for (const b of buckets) {
+      const rl = await db.query<{ allowed: boolean; retry_after_secs: number }>(
+        `SELECT * FROM fn_rate_limit_check($1, $2, $3)`,
+        [b.key, b.max, b.secs],
+      );
+      if (!rl.rows[0]?.allowed) {
+        return reply.code(429).send({
+          error: 'RATE_LIMIT',
+          retry_after_seconds: rl.rows[0]?.retry_after_secs ?? b.secs,
+        });
+      }
+    }
+
+    // 5. Registrar consentimiento Habeas Data
+    const cedulaHash = hashCedula(cedula);
+    await db.query(
+      `INSERT INTO habeas_data_consents
+        (kiosk_id, patient_cedula_hash, patient_phone, policy_version, policy_text_hash, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        kioskId,
+        cedulaHash,
+        phone,
+        policy_version,
+        policy_hash,
+        request.ip,
+        request.headers['user-agent'] ?? null,
+      ],
+    );
+
+    // 6. Cargar token Dentalink
+    const clinicResult = await db.query<{ dentalink_token_encrypted: Buffer | null }>(
+      `SELECT dentalink_token_encrypted FROM clinic WHERE id = 1`,
+    );
+    const dentalinkToken = await decrypt(
+      clinicResult.rows[0]?.dentalink_token_encrypted ?? null,
+    );
+
+    // 7. Buscar paciente en Dentalink
+    const patient = await dentalink.lookupPatientByCedula(cedula, dentalinkToken);
+
+    if (!patient || patient.celular !== phone) {
+      await audit({
+        actorType: 'system',
+        action: patient ? 'patient.direct.phone_mismatch' : 'patient.direct.unknown_patient',
+        resourceType: 'patient_cedula_hash',
+        resourceId: cedulaHash.substring(0, 16),
+        result: 'denied',
+        ip: request.ip,
+      });
+      return reply.code(401).send({ error: 'PATIENT_NOT_FOUND' });
+    }
+
+    // 8. Crear sesión directamente
+    const { token, jti, expiresAt } = await signPatientSession({
+      dentalinkPatientId: patient.id,
+      kioskId,
+    });
+
+    await db.query(
+      `INSERT INTO patient_sessions
+        (kiosk_id, dentalink_patient_id, patient_phone_masked, jti, expires_at, request_ip, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        kioskId,
+        patient.id,
+        maskPhone(phone),
+        jti,
+        expiresAt,
+        request.ip,
+        request.headers['user-agent'] ?? null,
+      ],
+    );
+
+    await audit({
+      actorType: 'kiosk',
+      actorId: kioskId,
+      action: 'patient.direct.authenticated',
+      resourceType: 'patient',
+      resourceId: patient.id,
+      metadata: { jti, otp_required: false },
+      result: 'success',
+      ip: request.ip,
+    });
+
+    logger.info(
+      {
+        jti,
+        dentalink_patient_id: patient.id,
+        cedula: maskCedula(cedula),
+        phone: maskPhone(phone),
+        kiosk: kioskId,
+      },
+      'Patient authenticated (direct, no OTP)',
+    );
+
+    return reply.send({
+      session_token: token,
+      expires_at: expiresAt.toISOString(),
+      patient: {
+        name: patient.nombre,
+      },
+    });
+  });
+
+  /**
    * POST /auth/logout
    */
   app.post('/auth/logout', async (request, reply) => {

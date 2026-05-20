@@ -98,6 +98,11 @@ const ConfigSchema = z.object({
   // Tamaño máximo de archivo de standby (bytes). Default 50 MB.
   UPLOADS_MAX_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
 
+  // -------- Autenticación paciente --------
+  // false = el paciente accede solo con cédula + teléfono, sin enviar código OTP.
+  // true  = flujo normal: se envía código por SMS/email y el paciente lo verifica.
+  OTP_REQUIRED: boolEnv(true),
+
   // -------- Dev helpers --------
   DEV_MOCK_EXTERNAL_SERVICES: boolEnv(false),
   DEV_LOG_OTP: boolEnv(false),

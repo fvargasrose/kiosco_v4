@@ -95,6 +95,24 @@ class ApiClient {
     });
   }
 
+  async loginDirect({ cedula, phone, policyVersion, policyHash }) {
+    const res = await this._fetch('/auth/login-direct', {
+      method: 'POST',
+      body: {
+        cedula,
+        phone,
+        consent: true,
+        policy_version: policyVersion,
+        policy_hash: policyHash,
+      },
+      _useKiosk: true,
+    });
+    if (res.session_token) {
+      this.setPatientToken(res.session_token);
+    }
+    return res;
+  }
+
   async verifyOtp({ requestId, code }) {
     const res = await this._fetch('/auth/verify-otp', {
       method: 'POST',

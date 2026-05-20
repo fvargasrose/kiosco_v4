@@ -799,7 +799,6 @@ class DentalinkClient {
         method: 'PUT',
         body: {
           id_estado: 3,
-          comentario_cancelacion: opts.reason ?? 'Cancelada por el paciente desde kiosco',
         },
       },
     );

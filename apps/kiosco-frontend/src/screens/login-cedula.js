@@ -4,10 +4,13 @@
  */
 
 import { api, ApiError } from '../api.js';
+import { setPatient } from '../state.js';
 import { toast } from '../components/toast.js';
 
 export function renderLoginCedula(container, params, navigate) {
   const { policyVersion, policyHash } = params;
+  // Leído del bootstrap; true por defecto si no está definido (seguro).
+  const otpRequired = params.otpRequired !== false;
 
   if (!policyVersion || !policyHash) {
     // No deberíamos llegar aquí sin haber pasado por habeas-data
@@ -26,7 +29,7 @@ export function renderLoginCedula(container, params, navigate) {
       <div class="screen-body">
         <div class="login-form">
           <p class="subtitle">
-            Por favor ingresa tu cédula y celular registrados en la clínica.
+            Por favor ingresa tu cédula y celular registrados en la clínica.${otpRequired ? '' : ' No se requiere código de verificación.'}
           </p>
 
           <div id="form-error" class="form-error" style="display: none;"></div>
@@ -47,11 +50,11 @@ export function renderLoginCedula(container, params, navigate) {
                      autocomplete="off" placeholder="3001234567"
                      maxlength="10">
             </div>
-            <div class="form-help">10 dígitos, sin el +57. Te enviaremos un código.</div>
+            <div class="form-help">10 dígitos, sin el +57.${otpRequired ? ' Te enviaremos un código.' : ''}</div>
           </div>
 
           <button type="button" class="btn btn-primary btn-lg btn-full" id="submit-btn">
-            Enviar código
+            ${otpRequired ? 'Enviar código' : 'Ingresar'}
           </button>
 
           <div class="register-link-row">
@@ -111,38 +114,47 @@ export function renderLoginCedula(container, params, navigate) {
 
     submitting = true;
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Enviando...';
+    submitBtn.textContent = otpRequired ? 'Enviando...' : 'Verificando...';
 
     try {
-      const result = await api.requestOtp({
-        cedula,
-        phone: `+57${phoneDigits}`,
-        policyVersion,
-        policyHash,
-      });
-
-      // Pasamos a OTP. Por anti-enumeración el server SIEMPRE responde 200
-      // con un request_id, exista o no el paciente. La pantalla de OTP
-      // valida el código y si falla el paciente verá error genérico.
-      navigate('login-otp', {
-        requestId: result.request_id,
-        expiresInSeconds: result.expires_in_seconds,
-        maskedPhone: `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`,
-      });
+      if (otpRequired) {
+        const result = await api.requestOtp({
+          cedula,
+          phone: `+57${phoneDigits}`,
+          policyVersion,
+          policyHash,
+        });
+        navigate('login-otp', {
+          requestId: result.request_id,
+          expiresInSeconds: result.expires_in_seconds,
+          maskedPhone: `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`,
+        });
+      } else {
+        const result = await api.loginDirect({
+          cedula,
+          phone: `+57${phoneDigits}`,
+          policyVersion,
+          policyHash,
+        });
+        setPatient(result.patient);
+        navigate('home');
+      }
     } catch (err) {
       submitting = false;
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Enviar código';
+      submitBtn.textContent = otpRequired ? 'Enviar código' : 'Ingresar';
 
       if (err instanceof ApiError) {
         if (err.status === 429) {
           showError('Demasiados intentos. Espera unos minutos antes de volver a intentar.');
+        } else if (err.status === 401) {
+          showError('Cédula o celular no coinciden con nuestros registros. Verifica los datos.');
         } else if (err.status === 400) {
           showError('Datos inválidos. Verifica cédula y celular.');
-        } else if (err.status === 401 || err.status === 403) {
+        } else if (err.status === 403) {
           showError('Este kiosco no está autorizado. Contacta a recepción.');
         } else {
-          showError('No pudimos enviar el código. Intenta de nuevo.');
+          showError('No pudimos verificar tus datos. Intenta de nuevo.');
         }
       } else {
         toast('Error de conexión. Verifica la red del kiosco.', 'error');

@@ -73,6 +73,7 @@ export function renderHabeasData(container, _params, navigate) {
     navigate('login-cedula', {
       policyVersion: hd.version,
       policyHash: hd.hash,
+      otpRequired: state.config?.otp_required !== false,
     });
   });
 
