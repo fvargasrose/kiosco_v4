@@ -573,11 +573,29 @@ class DentalinkClient {
       return list;
     }
 
-    const data = await dentalinkRequest<{ data?: DentalinkAppointment[] }>(
+    const data = await dentalinkRequest<{ data?: unknown[] }>(
       `/api/v1/pacientes/${encodeURIComponent(patientId)}/citas`,
       dentalinkToken!,
     );
-    const list = data.data ?? [];
+    // Normalizar campos reales de Dentalink → interfaz interna
+    // Dentalink devuelve: estado_cita, nombre_dentista, nombre_sucursal, nombre_tratamiento,
+    //                     id como número, hora_inicio con segundos ("HH:MM:SS")
+    const list = (data.data ?? []).map((a: any): DentalinkAppointment => ({
+      id: String(a.id ?? ''),
+      fecha: a.fecha ?? '',
+      hora_inicio: (a.hora_inicio ?? '').slice(0, 5),
+      hora_fin: (a.hora_fin ?? '').slice(0, 5),
+      estado: a.estado_cita ?? a.estado ?? '',
+      id_paciente: a.id_paciente,
+      paciente: a.nombre_paciente ?? a.paciente ?? '',
+      id_dentista: String(a.id_dentista ?? ''),
+      dentista: a.nombre_dentista ?? a.dentista ?? '',
+      id_sucursal: a.id_sucursal,
+      sucursal: a.nombre_sucursal ?? a.sucursal ?? '',
+      id_sillon: a.id_sillon,
+      tratamiento: a.nombre_tratamiento ?? a.tratamiento ?? '',
+      observaciones: a.comentarios ?? a.observaciones ?? '',
+    }));
     await setCached(cacheKey, list, CACHE_TTL_APPOINTMENTS);
     return list;
   }
@@ -596,11 +614,22 @@ class DentalinkClient {
       return list;
     }
 
-    const data = await dentalinkRequest<{ data?: DentalinkTreatment[] }>(
+    const data = await dentalinkRequest<{ data?: unknown[] }>(
       `/api/v1/pacientes/${encodeURIComponent(patientId)}/tratamientos`,
       dentalinkToken!,
     );
-    const list = data.data ?? [];
+    // Normalizar campos reales de Dentalink → interfaz interna
+    // Dentalink devuelve: deuda (en lugar de saldo_pendiente), finalizado (boolean)
+    const list = (data.data ?? []).map((t: any): DentalinkTreatment => ({
+      id: String(t.id ?? ''),
+      nombre: t.nombre ?? '',
+      estado: t.finalizado ? 'Finalizado' : 'En curso',
+      fecha_inicio: t.fecha ?? '',
+      id_paciente: t.id_paciente,
+      total: t.total ?? 0,
+      abonado: t.abonado ?? 0,
+      saldo_pendiente: t.deuda ?? t.saldo_pendiente ?? 0,
+    }));
     await setCached(cacheKey, list, CACHE_TTL_TREATMENTS);
     return list;
   }

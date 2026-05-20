@@ -97,9 +97,9 @@ function renderList(container, items, status, onActionDone, navigate) {
 function renderItem(apt) {
   const dateStr = formatDate(apt.fecha);
   const timeStr = `${apt.hora_inicio} – ${apt.hora_fin}`;
-  const estadoSafe = apt.estado.replace(/\s/g, '_');
+  const estadoSafe = (apt.estado ?? '').replace(/\s/g, '_');
   const badge = badgeFor(apt.estado);
-  const isUpcoming = !['Cancelada', 'Atendida'].includes(apt.estado);
+  const isUpcoming = !['Cancelada', 'Atendida', 'Anulado', 'No asistió'].includes(apt.estado ?? '');
 
   const actions = isUpcoming
     ? `
@@ -270,8 +270,8 @@ function renderError(container, err) {
 }
 
 function badgeFor(estado) {
-  if (estado === 'Confirmada') return { cls: 'badge-success' };
-  if (estado === 'Cancelada') return { cls: 'badge-danger' };
+  if (estado === 'Confirmada' || estado === 'Pendiente') return { cls: 'badge-success' };
+  if (estado === 'Cancelada' || estado === 'Anulado') return { cls: 'badge-danger' };
   if (estado === 'Atendida') return { cls: '' };
   return { cls: 'badge-warning' };
 }

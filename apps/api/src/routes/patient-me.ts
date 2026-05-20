@@ -115,15 +115,16 @@ export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
       // Filtrar por status
       const now = new Date();
       let result = filtered;
+      const INACTIVE_STATES = ['Cancelada', 'Atendida', 'Anulado', 'No asistió'];
       if (status === 'upcoming') {
         result = filtered.filter((a) => {
           const dt = new Date(`${a.fecha}T${a.hora_inicio}`);
-          return dt >= now && !['Cancelada', 'Atendida'].includes(a.estado);
+          return dt >= now && !INACTIVE_STATES.includes(a.estado);
         });
       } else if (status === 'past') {
         result = filtered.filter((a) => {
           const dt = new Date(`${a.fecha}T${a.hora_inicio}`);
-          return dt < now || ['Cancelada', 'Atendida'].includes(a.estado);
+          return dt < now || INACTIVE_STATES.includes(a.estado);
         });
       }
 
