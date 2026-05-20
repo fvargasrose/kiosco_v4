@@ -141,6 +141,20 @@ ON CONFLICT (version) DO NOTHING;
 
 ## Bugs corregidos en sesiones anteriores
 
+### Booking — POST /api/v1/citas fallaba (2026-05-19)
+
+| Bug | Fix |
+|-----|-----|
+| `id_sillon` no se enviaba | Se lee de `clinic.sillon_id` y se pasa a `createAppointment` |
+| `duracion` no se enviaba (campo requerido por Dentalink) | Se calcula como `hora_fin - hora_inicio` en minutos |
+| `id_estado: 1` = "Anulado" en esta instalación | Se eliminó — Dentalink asigna estado inicial por defecto |
+| Slot seleccionado = slot incorrecto en confirmación | Bug en `booking.js`: `data-idx` indexaba el sub-grupo (mañana/tarde) pero el handler usaba el array completo. Fix: `data-hora` + `slots.find()` |
+| Logging de errores Dentalink era vacío | `handleDentalinkError` y ruta booking ahora logean `upstreamBody` completo |
+
+**Resultado:** `POST /api/v1/citas` funcionando — probado con cedula 10697021, German Fernandez, 2026-06-01 17:00 → HTTP 201.
+
+---
+
 ### Booking — "No pudimos cargar esta información" (commit `1872adc`)
 
 | Endpoint | Bug | Fix |

@@ -338,9 +338,8 @@ async function renderSlotStep(container, selection, { next }) {
 
     slotsContainer.querySelectorAll('.slot-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const idx = Number(btn.dataset.idx);
-        selection.slot = slots[idx];
-        next('confirm');
+        selection.slot = slots.find((s) => s.hora_inicio === btn.dataset.hora) ?? null;
+        if (selection.slot) next('confirm');
       });
     });
   } catch (err) {
@@ -356,7 +355,7 @@ function renderSlotGroup(label, slots) {
         ${slots
           .map(
             (s, i) => `
-          <button type="button" class="slot-btn" data-idx="${slots.indexOf(s)}">
+          <button type="button" class="slot-btn" data-hora="${escapeHtml(s.hora_inicio)}">
             ${escapeHtml(s.hora_inicio)}
           </button>
         `,

@@ -966,6 +966,7 @@ class DentalinkClient {
     patientId: string;
     dentistId: string;
     sucursalId: number;
+    sillonId?: number;
     fecha: string; // YYYY-MM-DD
     horaInicio: string; // HH:mm
     horaFin: string; // HH:mm
@@ -976,6 +977,7 @@ class DentalinkClient {
       patientId,
       dentistId,
       sucursalId,
+      sillonId,
       fecha,
       horaInicio,
       horaFin,
@@ -1027,22 +1029,27 @@ class DentalinkClient {
     }
 
     // Dentalink real: POST /api/v1/citas — IDs deben ser numéricos
+    const parseMin = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h! * 60 + m!;
+    };
+    const duracion = parseMin(horaFin) - parseMin(horaInicio);
+    const body: Record<string, unknown> = {
+      id_paciente: Number(patientId),
+      id_dentista: Number(dentistId),
+      id_sucursal: sucursalId,
+      fecha,
+      hora_inicio: horaInicio,
+      hora_fin: horaFin,
+      duracion,
+      comentarios: notas,
+    };
+    if (sillonId !== undefined) body.id_sillon = sillonId;
+    logger.info({ body }, 'createAppointment → Dentalink POST /api/v1/citas');
     const data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
       '/api/v1/citas',
       dentalinkToken!,
-      {
-        method: 'POST',
-        body: {
-          id_paciente: Number(patientId),
-          id_dentista: Number(dentistId),
-          id_sucursal: sucursalId,
-          fecha,
-          hora_inicio: horaInicio,
-          hora_fin: horaFin,
-          comentarios: notas,
-          id_estado: 1, // 1 = Reservada
-        },
-      },
+      { method: 'POST', body },
     );
     if (!data.data) {
       throw new DentalinkError(

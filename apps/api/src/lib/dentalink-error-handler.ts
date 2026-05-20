@@ -35,11 +35,13 @@ export function handleDentalinkError(err: unknown, reply: ReplyLike): unknown {
       });
     }
     if (err.code === 'BAD_REQUEST') {
+      logger.error({ upstreamBody: err.upstreamBody, status: err.status }, 'Dentalink BAD_REQUEST');
       return reply.code(400).send({
         error: 'BAD_REQUEST',
         message: 'La operación no fue aceptada por el sistema de gestión.',
       });
     }
+    logger.error({ code: err.code, status: err.status, upstreamBody: err.upstreamBody }, 'Dentalink error');
     return reply.code(503).send({
       error: 'UPSTREAM_ERROR',
       message: 'Error al consultar el sistema de gestión.',

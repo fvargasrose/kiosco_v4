@@ -63,14 +63,16 @@ async function getDentalinkToken(): Promise<string | null> {
 }
 
 /**
- * Obtiene la duración por defecto desde clinic.duracion_cita_minutos.
- * Fallback a 30 si no está configurado.
+ * Obtiene configuración de booking desde clinic: duración y sillón por defecto.
  */
-async function getDefaultDuration(): Promise<number> {
-  const r = await db.query<{ duracion_cita_minutos: number | null }>(
-    `SELECT duracion_cita_minutos FROM clinic WHERE id = 1`,
+async function getClinicBookingConfig(): Promise<{ durationMin: number; sillonId: number }> {
+  const r = await db.query<{ duracion_cita_minutos: number | null; sillon_id: number | null }>(
+    `SELECT duracion_cita_minutos, sillon_id FROM clinic WHERE id = 1`,
   );
-  return r.rows[0]?.duracion_cita_minutos ?? DEFAULT_DURATION_MINUTES;
+  return {
+    durationMin: r.rows[0]?.duracion_cita_minutos ?? DEFAULT_DURATION_MINUTES,
+    sillonId: r.rows[0]?.sillon_id ?? 1,
+  };
 }
 
 const DateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido');
@@ -208,7 +210,8 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const token = await getDentalinkToken();
-      const durationMin = duration ?? (await getDefaultDuration());
+      const { durationMin: defaultDuration } = await getClinicBookingConfig();
+      const durationMin = duration ?? defaultDuration;
       const slots = await dentalink.getAvailableSlots(dentist_id, from, to, durationMin, token);
       return reply.send({ data: slots, total: slots.length, duration_minutes: durationMin });
     } catch (err) {
@@ -287,10 +290,12 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const token = await getDentalinkToken();
+        const { sillonId } = await getClinicBookingConfig();
         const newApt = await dentalink.createAppointment({
           patientId: patient.sub,
           dentistId: dentist_id,
           sucursalId: branch_id,
+          sillonId,
           fecha,
           horaInicio: hora_inicio,
           horaFin: hora_fin,
@@ -344,7 +349,12 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
             message: 'Este horario ya no está disponible. Por favor escoge otro.',
           });
         }
-        if (!(err instanceof DentalinkError)) {
+        if (err instanceof DentalinkError) {
+          logger.error(
+            { code: err.code, status: err.status, upstreamBody: err.upstreamBody, dentist_id, fecha, hora_inicio, hora_fin },
+            'Dentalink rechazó crear cita',
+          );
+        } else {
           logger.error({ err, patient_id: patient.sub }, 'Error creando cita');
         }
         return handleDentalinkError(err, reply);

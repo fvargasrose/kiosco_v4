@@ -99,9 +99,8 @@ export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
       const all = await dentalink.getPatientAppointments(patient.sub, token);
 
       // VALIDACIÓN CRÍTICA: anti-IDOR
-      // Aunque Dentalink ya filtra por patient_id en la URL, verificamos
-      // que TODAS las citas devueltas pertenezcan a este paciente.
-      const filtered = all.filter((a) => a.id_paciente === patient.sub);
+      // Dentalink puede retornar id_paciente como número o string — comparar siempre como string.
+      const filtered = all.filter((a) => String(a.id_paciente) === String(patient.sub));
       if (filtered.length !== all.length) {
         logger.warn(
           {
@@ -168,7 +167,7 @@ export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
       const all = await dentalink.getPatientTreatments(patient.sub, token);
 
       // Anti-IDOR
-      const filtered = all.filter((t) => t.id_paciente === patient.sub);
+      const filtered = all.filter((t) => String(t.id_paciente) === String(patient.sub));
 
       let result = filtered;
       if (status === 'active') {
@@ -244,7 +243,7 @@ export async function patientMeRoutes(app: FastifyInstance): Promise<void> {
         // Hacemos un GET previo para no depender del filtro en cliente.
         const appointments = await dentalink.getPatientAppointments(patient.sub, token);
         const target = appointments.find(
-          (a) => a.id === appointmentId && a.id_paciente === patient.sub,
+          (a) => String(a.id) === String(appointmentId) && String(a.id_paciente) === String(patient.sub),
         );
 
         if (!target) {
