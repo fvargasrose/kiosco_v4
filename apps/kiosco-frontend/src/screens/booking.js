@@ -368,7 +368,7 @@ function renderSlotGroup(label, slots) {
 
 // ----- 5: Confirmar -----
 
-function renderConfirmStep(container, selection, { finish, cancel }) {
+function renderConfirmStep(container, selection, { finish, cancel, next }) {
   if (!selection.slot) return cancel();
 
   const fullDate = formatLongDate(selection.date);
@@ -475,12 +475,11 @@ function renderConfirmStep(container, selection, { finish, cancel }) {
 
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          showError('Este horario ya no está disponible. Por favor escoge otro.');
-          // Auto-volver al paso de slots después de 2s
+          showError('Este horario ya no está disponible. Elige otro en 3 segundos…');
           setTimeout(() => {
-            // Forzar refresh del paso slot
-            // (no podemos llamar next aquí — está fuera de scope)
-          }, 2000);
+            selection.slot = null;
+            next('slot');
+          }, 3000);
         } else if (err.status === 429) {
           showError('Has creado muchas citas recientemente. Espera unos minutos.');
         } else if (err.status === 400) {

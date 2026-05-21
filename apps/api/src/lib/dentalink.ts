@@ -1089,6 +1089,11 @@ class DentalinkClient {
           (err.upstreamBody as { error?: { message?: string } })?.error?.message ?? '',
         ).toLowerCase();
         if (upMsg.includes('tope') || upMsg.includes('horario solicitado')) {
+          // Invalidar caché de slots para que el siguiente intento muestre datos frescos
+          try {
+            const keys = await redis.getClient().keys(`dl:slots:${dentistId}:*`);
+            if (keys.length > 0) await redis.del(...keys);
+          } catch { /* ignorar errores de caché */ }
           throw new DentalinkError(
             'El horario ya no está disponible',
             'CONFLICT',
