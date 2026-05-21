@@ -1074,11 +1074,31 @@ class DentalinkClient {
     };
     if (sillonId !== undefined) body.id_sillon = sillonId;
     logger.info({ body }, 'createAppointment → Dentalink POST /api/v1/citas');
-    const data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
-      '/api/v1/citas',
-      dentalinkToken!,
-      { method: 'POST', body },
-    );
+    let data: { data?: DentalinkAppointment };
+    try {
+      data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
+        '/api/v1/citas',
+        dentalinkToken!,
+        { method: 'POST', body },
+      );
+    } catch (err) {
+      // Dentalink devuelve 400 (no 409) cuando el slot ya está ocupado.
+      // Detectamos el mensaje específico y lo convertimos a CONFLICT.
+      if (err instanceof DentalinkError && err.code === 'BAD_REQUEST') {
+        const upMsg = String(
+          (err.upstreamBody as { error?: { message?: string } })?.error?.message ?? '',
+        ).toLowerCase();
+        if (upMsg.includes('tope') || upMsg.includes('horario solicitado')) {
+          throw new DentalinkError(
+            'El horario ya no está disponible',
+            'CONFLICT',
+            409,
+            err.upstreamBody,
+          );
+        }
+      }
+      throw err;
+    }
     if (!data.data) {
       throw new DentalinkError(
         'Respuesta vacía de Dentalink al crear cita',
