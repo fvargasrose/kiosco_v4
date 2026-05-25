@@ -1,0 +1,12 @@
+- generic [ref=e4]:
+  - generic [ref=e5]: 🦷 DentalKiosco Admin
+  - generic [ref=e15]: Credenciales incorrectas.
+  - generic [ref=e6]:
+    - generic [ref=e7]: Correo electrónico
+    - textbox "Correo electrónico" [ref=e8]:
+      - /placeholder: admin@clinica.co
+      - text: admin@demo.local
+  - generic [ref=e9]:
+    - generic [ref=e10]: Contraseña
+    - textbox "Contraseña" [ref=e11]: Admin@Demo2026
+  - button "Ingresar" [ref=e12] [cursor=pointer]

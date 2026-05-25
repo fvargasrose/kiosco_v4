@@ -1,0 +1,44 @@
+- generic [ref=e88]:
+  - banner [ref=e89]:
+    - heading "Agendar cita — Hora" [level=1] [ref=e247]
+    - button "← Volver" [ref=e91] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - generic [ref=e248]:
+        - generic: ✓1
+      - generic [ref=e250]:
+        - generic: ✓2
+      - generic [ref=e252]:
+        - generic: ✓3
+      - generic [ref=e255]: "4"
+      - generic [ref=e258]: "5"
+    - generic [ref=e108]:
+      - paragraph [ref=e259]:
+        - strong [ref=e260]: lunes, 1 de junio de 2026
+        - text: "· Horarios disponibles con GERMAN ENRIQUE FERNANDEZ SILVA:"
+      - generic [ref=e261]:
+        - generic [ref=e262]:
+          - heading "Mañana" [level=3] [ref=e263]
+          - generic [ref=e264]:
+            - button "09:30" [ref=e265] [cursor=pointer]
+            - button "10:00" [ref=e266] [cursor=pointer]
+            - button "10:30" [ref=e267] [cursor=pointer]
+            - button "11:00" [ref=e268] [cursor=pointer]
+            - button "11:30" [ref=e269] [cursor=pointer]
+        - generic [ref=e270]:
+          - heading "Tarde" [level=3] [ref=e271]
+          - generic [ref=e272]:
+            - button "12:00" [ref=e273] [cursor=pointer]
+            - button "12:30" [ref=e274] [cursor=pointer]
+            - button "13:00" [ref=e275] [cursor=pointer]
+            - button "13:30" [ref=e276] [cursor=pointer]
+            - button "14:00" [ref=e277] [cursor=pointer]
+            - button "14:30" [ref=e278] [cursor=pointer]
+            - button "15:00" [ref=e279] [cursor=pointer]
+            - button "15:30" [ref=e280] [cursor=pointer]
+            - button "16:00" [ref=e281] [cursor=pointer]
+            - button "16:30" [ref=e282] [cursor=pointer]
+            - button "17:00" [ref=e283] [cursor=pointer]
+            - button "17:30" [ref=e284] [cursor=pointer]
+            - button "18:00" [ref=e285] [cursor=pointer]
+            - button "18:30" [ref=e286] [cursor=pointer]

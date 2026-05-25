@@ -1,0 +1,22 @@
+- generic [ref=e26]:
+  - banner [ref=e27]:
+    - heading "Identifícate" [level=1] [ref=e28]
+    - button "← Cancelar" [ref=e29] [cursor=pointer]
+  - generic [ref=e31]:
+    - paragraph [ref=e32]: Por favor ingresa tu cédula y celular registrados en la clínica.
+    - generic [ref=e33]:
+      - generic [ref=e34]: Cédula de ciudadanía
+      - textbox "Cédula de ciudadanía" [active] [ref=e35]:
+        - /placeholder: Solo números
+      - generic [ref=e36]: Sin puntos ni espacios.
+    - generic [ref=e37]:
+      - generic [ref=e38]: Celular
+      - generic [ref=e39]:
+        - generic [ref=e40]: "+57"
+        - textbox "Celular" [ref=e41]:
+          - /placeholder: "3001234567"
+      - generic [ref=e42]: 10 dígitos, sin el +57. Te enviaremos un código.
+    - button "Enviar código" [ref=e43] [cursor=pointer]
+    - generic [ref=e44]:
+      - generic [ref=e45]: ¿Eres paciente nuevo?
+      - button "Regístrate aquí →" [ref=e46] [cursor=pointer]

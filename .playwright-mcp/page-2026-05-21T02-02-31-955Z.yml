@@ -1,0 +1,41 @@
+- generic [ref=e55]:
+  - complementary [ref=e56]:
+    - generic [ref=e59]: DentalKiosco
+    - navigation [ref=e60]:
+      - button " Inicio" [ref=e61] [cursor=pointer]:
+        - generic [ref=e62]: 
+        - generic [ref=e63]: Inicio
+      - button " Mis Citas" [ref=e64] [cursor=pointer]:
+        - generic [ref=e65]: 
+        - generic [ref=e66]: Mis Citas
+      - button "Mis Tratamientos" [ref=e67] [cursor=pointer]:
+        - generic [ref=e68]: Mis Tratamientos
+      - button " Agendar Cita" [ref=e69] [cursor=pointer]:
+        - generic [ref=e70]: 
+        - generic [ref=e71]: Agendar Cita
+    - button " Cerrar sesión" [ref=e73] [cursor=pointer]:
+      - generic [ref=e74]: 
+      - generic [ref=e75]: Cerrar sesión
+    - button "" [ref=e76] [cursor=pointer]:
+      - generic [ref=e77]: 
+  - main [ref=e78]:
+    - generic [ref=e79]:
+      - generic [ref=e80]:
+        - generic [ref=e81]: Bienvenido de vuelta
+        - generic [ref=e82]: María
+      - generic [ref=e83]:
+        - generic [ref=e84]: 21:02
+        - generic [ref=e85]: miércoles, 20 de mayo
+    - generic [ref=e86]:
+      - button " Agendar cita Reserva tu próxima visita" [ref=e87] [cursor=pointer]:
+        - generic [ref=e89]: 
+        - generic [ref=e90]: Agendar cita
+        - generic [ref=e91]: Reserva tu próxima visita
+      - button " Mis citas Consulta o cancela tus visitas" [ref=e92] [cursor=pointer]:
+        - generic [ref=e94]: 
+        - generic [ref=e95]: Mis citas
+        - generic [ref=e96]: Consulta o cancela tus visitas
+      - button "Mis tratamientos Historial y saldos pendientes" [ref=e97] [cursor=pointer]:
+        - generic [ref=e99]: Mis tratamientos
+        - generic [ref=e100]: Historial y saldos pendientes
+  - text:   

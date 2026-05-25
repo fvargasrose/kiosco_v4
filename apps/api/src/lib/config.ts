@@ -103,6 +103,9 @@ const ConfigSchema = z.object({
   // true  = flujo normal: se envía código por SMS/email y el paciente lo verifica.
   OTP_REQUIRED: boolEnv(true),
 
+  // -------- Tema visual del kiosco --------
+  KIOSK_THEME: z.enum(['apple', 'default']).default('apple'),
+
   // -------- Dev helpers --------
   DEV_MOCK_EXTERNAL_SERVICES: boolEnv(false),
   DEV_LOG_OTP: boolEnv(false),

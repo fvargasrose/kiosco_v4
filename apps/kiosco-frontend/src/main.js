@@ -30,6 +30,13 @@ import { renderPayment } from './screens/payment.js';
 import { renderBooking } from './screens/booking.js';
 import { renderRegister } from './screens/register.js';
 
+// Apple theme screens (loaded always — only registered when theme === 'apple')
+import { renderHomeApple } from './screens/home.apple.js';
+import { renderAppointmentsApple } from './screens/appointments.apple.js';
+import { renderTreatmentsApple } from './screens/treatments.apple.js';
+import { renderBookingApple } from './screens/booking.apple.js';
+import { renderPaymentApple } from './screens/payment.apple.js';
+
 // ===== Registro de pantallas =====
 registerScreen('standby', renderStandby);
 registerScreen('faq', renderFaq);
@@ -43,6 +50,33 @@ registerScreen('profile', renderProfile);
 registerScreen('payment', renderPayment);
 registerScreen('booking', renderBooking);
 registerScreen('register', renderRegister);
+
+function activateAppleTheme() {
+  // Inter + Tabler Icons desde CDN (sin npm — solo 2 <link>)
+  const cdnLinks = [
+    { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+    { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+    { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap' },
+    { rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css' },
+  ];
+  for (const attrs of cdnLinks) {
+    const el = document.createElement('link');
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    document.head.appendChild(el);
+  }
+
+  // Inyectar hoja de estilos apple — Vite la procesa y la incluye en el bundle
+  import('./styles-apple.css').catch(() => {});
+
+  document.body.classList.add('theme-apple');
+
+  // Sobreescribir las pantallas post-login con versiones apple
+  registerScreen('home',         renderHomeApple);
+  registerScreen('appointments', renderAppointmentsApple);
+  registerScreen('treatments',   renderTreatmentsApple);
+  registerScreen('booking',      renderBookingApple);
+  registerScreen('payment',      renderPaymentApple);
+}
 
 // ===== Idle timer: arranca cuando hay paciente, se detiene cuando se va =====
 subscribe((s) => {
@@ -89,6 +123,7 @@ async function bootstrap() {
   try {
     const config = await api.bootstrap();
     setConfig(config);
+    if (config.theme === 'apple') activateAppleTheme();
     navigate('standby');
   } catch (err) {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {

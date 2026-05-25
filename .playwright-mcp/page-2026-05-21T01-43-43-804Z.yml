@@ -1,0 +1,5 @@
+- generic [ref=e4]:
+  - generic [ref=e5]: 🔒
+  - heading "Kiosco no pareado" [level=2] [ref=e6]
+  - paragraph [ref=e7]: Este kiosco aún no ha sido asociado a una clínica.
+  - paragraph [ref=e8]: Contacta al administrador para iniciar el proceso de configuración.

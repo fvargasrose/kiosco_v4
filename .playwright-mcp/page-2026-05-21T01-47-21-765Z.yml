@@ -1,0 +1,43 @@
+- generic [ref=e16]:
+  - navigation [ref=e17]:
+    - generic [ref=e18]: 🦷 DentalKiosco
+    - button "Dashboard" [ref=e19] [cursor=pointer]
+    - button "Configuración clínica" [ref=e20] [cursor=pointer]
+    - button "Odontólogos" [ref=e21] [cursor=pointer]
+    - button "Kioscos" [ref=e22] [cursor=pointer]
+    - button "Transacciones" [ref=e23] [cursor=pointer]
+    - button "Cerrar sesión" [ref=e25] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - heading "Dashboard" [level=1] [ref=e28]
+      - generic [ref=e29]: "Actualizado: 20 de mayo de 2026, 08:47 p. m."
+    - generic [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]:
+          - generic [ref=e33]: Kioscos activos
+          - generic [ref=e34]: 🖥
+        - generic [ref=e35]: "3"
+        - generic [ref=e36]: de 3 en total
+      - generic [ref=e37] [cursor=pointer]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: Transacciones hoy
+          - generic [ref=e40]: 💳
+        - generic [ref=e41]: "0"
+        - generic [ref=e42]: 0 aprobadas
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - generic [ref=e45]: Monto aprobado hoy
+          - generic [ref=e46]: 💰
+        - generic [ref=e47]: $ 0
+        - generic [ref=e48]: Sin pagos aprobados
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]: Pagos pendientes
+          - generic [ref=e52]: ⏳
+        - generic [ref=e53]: "0"
+        - generic [ref=e54]: Sin pagos pendientes
+    - generic [ref=e55]:
+      - generic [ref=e56]:
+        - heading "Últimas transacciones" [level=2] [ref=e57]
+        - button "Ver todas →" [ref=e58] [cursor=pointer]
+      - generic [ref=e59]: Aún no hay transacciones registradas.

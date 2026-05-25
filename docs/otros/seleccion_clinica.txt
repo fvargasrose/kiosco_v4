@@ -1,0 +1,168 @@
+===============================================================================
+SELECCIÓN DE SUCURSAL Y SILLÓN EN DENTALKIOSCO
+Cómo el sistema obtiene y usa sucursal + sillón al agendar citas
+===============================================================================
+
+CONTEXTO — el log externo que se analiza
+-----------------------------------------
+El log muestra un sistema externo (probablemente Python, dado el formato de
+dict {'q': '...'}) que intenta:
+
+  1. GET /api/v1/sucursales  con q={"habilitada": {"eq": 1}}  → HTTP 200 ✅
+     → Devuelve: Sucursal "Odontología" ID=1
+
+  2. GET /api/v1/sillones   con q={"id_sucursal": {"eq": 1}} → HTTP 400 ❌
+     → Dentalink rechaza la consulta de sillones
+
+Este documento explica cómo el proyecto DentalKiosco resuelve lo mismo
+de forma diferente.
+
+
+===============================================================================
+1. CÓMO SE OBTIENE LA SUCURSAL
+===============================================================================
+
+El kiosco llama al endpoint interno:
+  GET /me/booking/branches
+
+El backend hace:
+  GET https://api.dentalink.healthatom.com/api/v1/sucursales
+  Header: Authorization: Token <token_clinica>
+  (sin parámetro q — se piden todas y se filtra en código)
+
+Respuesta de Dentalink (estructura relevante):
+  {
+    "data": [
+      { "id": 1, "nombre": "Odontología", "habilitada": 1, "direccion": "...", "telefono": "..." },
+      { "id": 2, "nombre": "Sede Norte",  "habilitada": 0, ... }
+    ]
+  }
+
+El backend filtra en código TypeScript (no en query param):
+  data.filter(s => s.habilitada === 1)
+
+DIFERENCIA con el sistema externo:
+  El sistema externo usa el filtro en la URL: q={"habilitada": {"eq": 1}}
+  DentalKiosco trae todas y filtra localmente — ambos enfoques son válidos,
+  pero el filtro en query param puede no ser compatible con todas las versiones
+  de la API de Dentalink (puede variar por instalación).
+
+Resultado retornado al kiosco:
+  { "data": [{ "id": 1, "nombre": "Odontología", "direccion": "...", "telefono": "..." }] }
+
+
+===============================================================================
+2. CÓMO SE OBTIENE EL SILLÓN — DIFERENCIA CRÍTICA
+===============================================================================
+
+El sistema externo intenta:
+  GET /api/v1/sillones?q={"id_sucursal": {"eq": 1}}
+  → Dentalink devuelve HTTP 400 (error — ese endpoint no funciona así)
+
+DentalKiosco NO consulta sillones a Dentalink en tiempo real.
+
+En su lugar, el `sillon_id` se configura UNA VEZ desde el panel admin y se
+guarda en la base de datos local PostgreSQL, en la tabla `clinic`:
+
+  -- Tabla clinic (singleton, siempre id=1)
+  sillon_id    INTEGER NOT NULL DEFAULT 1
+  sucursal_id  INTEGER NOT NULL DEFAULT 1
+
+Cuando el administrador configura la clínica en el panel, asigna el ID del
+sillón manualmente (ej: sillon_id = 1). Ese valor se usa en todos los
+bookings sin consultar Dentalink en cada petición.
+
+FLUJO al crear una cita:
+  -- 1. Leer configuración local (30 ms, sin llamada a Dentalink)
+  SELECT duracion_cita_minutos, sillon_id FROM clinic WHERE id = 1
+  → durationMin = 30, sillonId = 1
+
+  -- 2. Crear cita en Dentalink con el sillón precargado
+  POST /api/v1/citas
+  Body: {
+    id_paciente: <número>,
+    id_dentista: <número>,
+    id_sucursal: <número>,   ← elegida por el paciente en la UI
+    id_sillon:   1,          ← siempre el valor de clinic.sillon_id
+    fecha:       "YYYY-MM-DD",
+    hora_inicio: "HH:mm",
+    hora_fin:    "HH:mm",
+    duracion:    30,
+    comentarios: "..."
+  }
+
+
+===============================================================================
+3. POR QUÉ EL ENDPOINT /api/v1/sillones DA HTTP 400
+===============================================================================
+
+Dentalink no documenta públicamente un endpoint GET /api/v1/sillones con
+filtros q=JSON. Las posibles causas del 400:
+
+  a) El endpoint no existe en esa instalación de Dentalink
+  b) El formato del filtro es incorrecto (Dentalink puede esperar parámetros
+     distintos o no soportar filtros en ese recurso)
+  c) El token no tiene permisos para leer sillones
+
+SOLUCIÓN usada en DentalKiosco:
+  Evitar el endpoint completamente. El administrador busca manualmente el
+  sillon_id en el panel de Dentalink y lo copia en la configuración del kiosco.
+  Es un dato que cambia raramente (el sillón físico de la sala de espera).
+
+
+===============================================================================
+4. CACHÉ DE SUCURSALES
+===============================================================================
+
+  Redis key : "dl:sucursales"
+  TTL       : 600 segundos (10 minutos)
+
+Las sucursales cambian con muy poca frecuencia (se agregan/eliminan sedes
+ocasionalmente), por eso el TTL es largo. El sillón y la duración se leen
+desde PostgreSQL local con caché en memoria RAM de 30 segundos.
+
+
+===============================================================================
+5. PSEUDOCÓDIGO COMPLETO — PASO 3 DEL FLUJO DE BOOKING
+===============================================================================
+
+  // En booking.ts — getClinicBookingConfig()
+  config = SELECT sillon_id, duracion_cita_minutos FROM clinic WHERE id = 1
+  sillonId   = config.sillon_id   ?? 1   // por defecto sillón 1
+  duracionMin = config.duracion_cita_minutos ?? 30
+
+  // En dentalink.ts — getSucursales()
+  cache = Redis.get("dl:sucursales")
+  si cache existe → retornar cache
+
+  respuesta = GET Dentalink /api/v1/sucursales
+  sucursales = respuesta.data
+                 .filter(s => s.habilitada === 1)
+                 .map(s => { id, nombre, direccion, telefono })
+
+  Redis.set("dl:sucursales", sucursales, ttl=600s)
+  retornar sucursales
+
+  // NO se consulta /api/v1/sillones — el sillón viene de la BD local
+
+
+===============================================================================
+6. RESUMEN DE DIFERENCIAS CON EL SISTEMA EXTERNO
+===============================================================================
+
+  Aspecto               Sistema externo (log)          DentalKiosco
+  ─────────────────     ───────────────────────────    ─────────────────────────
+  Filtro sucursales     ?q={"habilitada":{"eq":1}}     Filtra en código (sin q)
+  Obtención sillón      GET /api/v1/sillones → 400❌   BD local clinic.sillon_id
+  sillon_id fijo?       No (intenta leerlo dinámico)   Sí (configurado por admin)
+  Error sillones        HTTP 400 sin sillón            No aplica (no se consulta)
+
+RECOMENDACIÓN:
+  Si se necesita listar sillones desde Dentalink, la forma más confiable es
+  consultar el panel web de Dentalink directamente y anotar el ID del sillón
+  que corresponde a la sala de atención. Ese ID se ingresa UNA vez en la
+  configuración del kiosco.
+
+===============================================================================
+FIN DEL DOCUMENTO
+===============================================================================

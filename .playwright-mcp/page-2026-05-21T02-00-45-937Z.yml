@@ -1,0 +1,5 @@
+- generic [ref=e4] [cursor=pointer]:
+  - heading "Smile Center" [level=1] [ref=e5]
+  - paragraph [ref=e6]: Bienvenido a nuestro autoservicio
+  - button "Toca para comenzar" [ref=e7]
+  - button "Preguntas frecuentes" [ref=e9]

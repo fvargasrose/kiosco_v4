@@ -1,0 +1,251 @@
+===============================================================================
+INTEGRACIÓN CON DENTALINK — DentalKiosco
+Documento técnico de referencia rápida
+===============================================================================
+
+LENGUAJE Y STACK
+----------------
+- Backend  : TypeScript + Node.js 22 + Fastify 4
+- Frontend : Vanilla JavaScript (ES modules, sin framework) + Vite 5
+- BD local : PostgreSQL 16
+- Caché    : Redis 7 (ioredis)
+- API ext. : Dentalink REST API (https://api.dentalink.healthatom.com)
+
+El cliente Dentalink está en:
+  apps/api/src/lib/dentalink.ts
+Las rutas HTTP que lo usan:
+  apps/api/src/routes/booking.ts      ← agendar cita
+  apps/api/src/routes/patient-me.ts  ← cancelar cita, ver citas/tratamientos
+
+
+===============================================================================
+1. AUTENTICACIÓN CON DENTALINK
+===============================================================================
+
+El kiosco usa un TOKEN de tipo "Token <valor>" en el header HTTP Authorization.
+Ese token es configurado por el administrador desde el panel admin y se guarda
+cifrado (pgcrypto) en la tabla `clinic` de la BD local.
+
+Antes de cada llamada a Dentalink, el backend descifra el token en memoria:
+
+  PSEUDOCÓDIGO:
+  -------------
+  token = descifrar( clinic.dentalink_token_encrypted )
+  fetch("https://api.dentalink.healthatom.com/api/v1/...", {
+    headers: { "Authorization": "Token " + token }
+  })
+
+El token se cachea en memoria RAM por 30 segundos para evitar consultar la BD
+en cada petición.
+
+Modo desarrollo: si no hay token o la variable DEV_MOCK_EXTERNAL_SERVICES=true,
+el cliente usa datos ficticios locales (no llama a Dentalink real).
+
+
+===============================================================================
+2. CONSULTAR HORARIO DISPONIBLE DE UN DENTISTA
+===============================================================================
+
+Dentalink NO tiene un endpoint de "slots libres". El sistema lo resuelve así:
+
+PASO 1 — Obtener el horario semanal del dentista:
+  GET /api/v1/horarios?q={"id_dentista":{"eq": <id_dentista>}}
+  Respuesta: días de la semana con hora_inicio, hora_fin, hora_inicio_break,
+             hora_fin_break e intervalo (duración mínima del slot en minutos).
+
+PASO 2 — Generar slots teóricos:
+  Con ese horario se calculan localmente todos los slots posibles en el rango
+  de fechas pedido (ej: próximos 7 días), respetando:
+    - Días laborales del dentista
+    - Pausa del mediodía (break)
+    - Duración mínima del slot (máximo entre intervalo y duración configurada)
+    - No slots en el pasado
+
+PASO 3 — El slot se reserva "optimistamente":
+  Si el paciente elige un slot y ese slot ya fue tomado por otro paciente
+  entre la consulta y la confirmación, Dentalink responde 400 con mensaje
+  "tope" o "horario solicitado" → el backend lo convierte a error CONFLICT
+  y le pide al paciente elegir otro horario.
+
+Caché Redis: los slots se guardan 1 minuto (TTL corto, cambian constantemente).
+
+  PSEUDOCÓDIGO SIMPLIFICADO:
+  --------------------------
+  horario = GET Dentalink /api/v1/horarios?q={id_dentista}
+
+  para cada día en [fechaDesde .. fechaHasta]:
+    si día está en horario.dias:
+      inicio = horario.dia.hora_inicio
+      fin    = horario.dia.hora_fin
+      break_i = horario.dia.hora_inicio_break
+      break_f = horario.dia.hora_fin_break
+
+      para t = inicio; t + duracion <= fin; t += duracion:
+        si t solapa break → saltar
+        si slot es en el pasado → saltar
+        agregar slot a lista
+
+  retornar lista de slots disponibles (teóricos)
+
+
+Endpoint expuesto al kiosco:
+  GET /me/booking/slots
+      ?dentist_id=<id>
+      &from=YYYY-MM-DD
+      &to=YYYY-MM-DD
+      &duration=30          ← opcional, usa config de la clínica por defecto
+  Máximo 30 días de rango. Máximo 90 días al futuro.
+
+
+===============================================================================
+3. CREAR / AGENDAR UNA CITA
+===============================================================================
+
+El paciente sigue este flujo en 4 pasos:
+
+  PASO 1: Elegir sucursal
+    GET /me/booking/branches
+    → llama Dentalink GET /api/v1/sucursales
+    → retorna sucursales habilitadas (habilitada=1)
+
+  PASO 2: Elegir dentista
+    GET /me/booking/dentists?branch_id=<N>
+    → llama Dentalink GET /api/v1/dentistas?q={id_sucursal: N}
+    → filtra habilitado=1
+    → enriquece con foto local si existe en tabla dentist_photos
+
+  PASO 3: Ver slots disponibles
+    GET /me/booking/slots?dentist_id=X&from=...&to=...
+    → (flujo explicado en sección 2)
+
+  PASO 4: Confirmar la cita
+    POST /me/booking/appointments
+    Body JSON: {
+      "dentist_id": "123",
+      "branch_id": 1,
+      "fecha": "2026-06-10",
+      "hora_inicio": "09:00",
+      "hora_fin": "09:30",
+      "notas": "Primera consulta"  (opcional)
+    }
+
+    El backend:
+      a) Valida fecha futura y dentro de 90 días
+      b) Aplica rate limit: máx 5 citas creadas por paciente por hora
+      c) Llama Dentalink:
+           POST /api/v1/citas
+           Body: {
+             id_paciente: <número>,
+             id_dentista: <número>,
+             id_sucursal: <número>,
+             id_sillon:   <número>,   ← sillón por defecto de la clínica
+             fecha:       "YYYY-MM-DD",
+             hora_inicio: "HH:mm",
+             hora_fin:    "HH:mm",
+             duracion:    <minutos>,
+             comentarios: <notas>
+           }
+      d) Si Dentalink responde 400 con "tope" → error CONFLICT → "Horario no disponible"
+      e) Si OK → invalida caché Redis de citas del paciente y de slots del dentista
+      f) Retorna 201 con datos de la cita creada
+      g) Registra en audit_log
+
+  NOTA: "Reagendar" = cancelar la cita anterior + crear una cita nueva.
+        Son dos operaciones independientes; el frontend las llama en secuencia.
+
+
+===============================================================================
+4. CANCELAR UNA CITA
+===============================================================================
+
+Endpoint:
+  DELETE /me/appointments/:appointmentId
+
+Flujo:
+  a) Verifica que el paciente sea dueño de la cita (anti-IDOR):
+       solo puede cancelar citas donde id_paciente == su patientId del JWT
+  b) Verifica que la cita no esté ya en estado terminal (Cancelada / Atendida)
+  c) Llama Dentalink:
+       PUT /api/v1/citas/<id>
+       Body: { "id_estado": 3 }   ← id 3 = estado "Cancelada" en Dentalink
+  d) Invalida caché Redis de citas del paciente
+  e) Registra en audit_log
+
+  PSEUDOCÓDIGO:
+  -------------
+  cita = buscar en cache/Dentalink la cita por appointmentId
+  si cita.id_paciente != pacienteActual → error 404 (no revelar existencia)
+  si cita.estado == "Cancelada" → error 409
+  si cita.estado == "Atendida"  → error 409
+
+  PUT Dentalink /api/v1/citas/<id>  { id_estado: 3 }
+  invalidar cache Redis del paciente
+  retornar cita actualizada
+
+
+===============================================================================
+5. CONSULTAR CITAS Y TRATAMIENTOS DEL PACIENTE
+===============================================================================
+
+Citas activas/futuras:
+  GET /me/appointments
+  → llama Dentalink GET /api/v1/pacientes/<id>/citas
+  → normaliza campos (Dentalink usa nombres distintos: estado_cita, nombre_dentista...)
+  → caché Redis 30 segundos
+
+Tratamientos:
+  GET /me/treatments
+  → llama Dentalink GET /api/v1/pacientes/<id>/tratamientos
+  → mapea campo "deuda" → saldo_pendiente, campo "finalizado" → estado
+  → caché Redis 60 segundos
+
+
+===============================================================================
+6. NORMALIZACIÓN DE TELÉFONO (DETALLE IMPORTANTE)
+===============================================================================
+
+Dentalink almacena el celular SIN prefijo país: "3206505239"
+El frontend siempre envía CON prefijo: "+573206505239"
+
+Al leer datos de Dentalink, el backend aplica normalizeCelular():
+  si celular empieza con "+" → dejarlo igual
+  si celular tiene 10 dígitos y empieza con "3" → agregar "+57" al inicio
+  caso contrario → dejarlo igual
+
+Sin esta normalización, la verificación de teléfono en login-directo falla.
+
+
+===============================================================================
+7. CACHÉ REDIS (TIEMPOS DE VIDA)
+===============================================================================
+
+  Paciente por cédula       : 60 segundos
+  Citas del paciente        : 30 segundos
+  Tratamientos del paciente : 60 segundos
+  Dentistas por sucursal    : 300 segundos (5 min)
+  Sucursales                : 600 segundos (10 min)
+  Slots disponibles         : 60 segundos (1 min)
+
+Después de crear o cancelar una cita, el backend invalida inmediatamente
+la caché de citas del paciente (y de slots del dentista afectado).
+
+
+===============================================================================
+8. MANEJO DE ERRORES
+===============================================================================
+
+El cliente Dentalink mapea los códigos HTTP a errores tipados:
+
+  HTTP 401/403 → UNAUTHORIZED   (token inválido o expirado)
+  HTTP 404     → NOT_FOUND      (paciente/cita no existe)
+  HTTP 409     → CONFLICT       (slot ocupado, cita ya cancelada)
+  HTTP 400/422 → BAD_REQUEST    (datos inválidos)
+  Timeout      → TIMEOUT
+  Otros 5xx    → UPSTREAM_ERROR
+
+Caso especial: Dentalink devuelve 400 (no 409) cuando el horario está ocupado.
+El backend detecta el mensaje "tope" en el cuerpo y lo convierte a CONFLICT.
+
+===============================================================================
+FIN DEL DOCUMENTO
+===============================================================================

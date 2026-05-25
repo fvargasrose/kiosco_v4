@@ -1,0 +1,566 @@
+===============================================================================
+PLAN DE IMPLEMENTACIÓN — DentalKiosco  (23 mayo 2026)
+Ordenado de menor a mayor dificultad/riesgo
+===============================================================================
+
+Resumen de decisiones del cliente
+───────────────────────────────────
+  C1  Calendario  → cuadrícula mensual clásica (2 meses)
+  C2  Video       → toggle "con sonido" configurable desde admin
+  C3  Logo        → header superior en TODAS las pantallas
+  C4  Login       → solo teléfono → OTP por email + SMS
+                    CLI: pnpm dk:otp <teléfono>
+  C5  Registro    → ocultar completamente (sin eliminar backend)
+  C6  Wompi       → email admin con datos paciente + pago + tratamiento + PDF
+  C7  Foto dentista → tarjetas más grandes en cuadrícula
+  C8  Acuerdos    → ya existe saldo en tratamientos; solo verificar endpoint
+  C9  Pestaña pagos → rediseñar según docs/pestaña_pagos.html
+  C10 Booking     → agregar paso de tratamiento; admin gestiona procedimientos
+
+
+═══════════════════════════════════════════════════════════════════════════════
+BLOQUE A — FÁCIL (riesgo bajo, sin cambios en backend ni auth)
+═══════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+A1. OCULTAR REGISTRO DE USUARIO NUEVO  [C5]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★☆☆☆☆
+Riesgo     : NINGUNO — solo ocultar UI; backend intacto
+Impacto    : Kiosco frontend
+
+¿Qué hay ahora?
+  - apps/kiosco-frontend/src/screens/home.js no muestra botón de registro.
+  - apps/kiosco-frontend/src/screens/register.js y la ruta /patient-register
+    existen y funcionan, pero no están enlazadas desde el home actual.
+  - La ruta se registra en router.js / main.js.
+
+Pasos:
+  1. Verificar en router.js que la ruta 'register' no sea accesible directamente.
+  2. Si hay algún enlace residual a 'register', comentarlo con // DESHABILITADO.
+  3. NO eliminar register.js ni la ruta de backend (podría reactivarse en futuro).
+  4. Agregar variable de entorno FEATURE_REGISTRO=false en .env si se quiere
+     controlar sin deploy (opcional pero elegante).
+
+Archivos:
+  apps/kiosco-frontend/src/main.js       ← verificar import de register
+  apps/kiosco-frontend/src/router.js     ← verificar si 'register' está ruteado
+  apps/kiosco-frontend/src/screens/home.js  ← confirmar que no hay botón
+
+
+──────────────────────────────────────────────────────────────────────────────
+A2. FOTO DEL ODONTÓLOGO MÁS GRANDE  [C7]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★☆☆☆☆
+Riesgo     : NINGUNO — solo CSS y layout
+Impacto    : Kiosco frontend (booking.js + styles.css)
+
+¿Qué hay ahora?
+  - .dentist-card-photo-wrap: width/height = 100px (círculo pequeño)
+  - Grid de dentistas: dentist-grid con auto-fill minmax(180px, 1fr)
+  - Las fotos existen en el servidor en /public/dentist-photo/:id
+
+Pasos:
+  1. En styles.css:
+     .dentist-card-photo-wrap → width: 160px; height: 160px
+     .dentist-card → padding: 1.5rem; gap: 1rem
+     .dentist-card-name → font-size: 1.2rem
+     .dentist-grid → grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))
+  2. En booking.js, la generación de photoHtml ya es correcta — no cambiar.
+  3. Si existe styles-apple.css, aplicar los mismos cambios de tamaño allí.
+  4. Verificar visualmente con: pnpm --filter kiosco-frontend dev
+
+Archivos:
+  apps/kiosco-frontend/src/styles.css         ← cambios CSS
+  apps/kiosco-frontend/src/styles-apple.css   ← mismos cambios si aplica
+
+Riesgo de regresión: NINGUNO. El HTML generado en booking.js no cambia.
+
+
+──────────────────────────────────────────────────────────────────────────────
+A3. VIDEO CON SONIDO CONFIGURABLE DESDE ADMIN  [C2]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★☆☆☆
+Riesgo     : BAJO — agregar campo en BD, toggle en admin, quitar muted
+Impacto    : Admin frontend + API + Kiosco frontend (standby)
+
+ADVERTENCIA TÉCNICA IMPORTANTE:
+  Los navegadores (Chrome, Edge, Firefox) bloquean audio automático por su
+  política de Autoplay. En un kiosco en modo "kiosk" o "fullscreen", Chrome
+  puede relajar esta restricción con la flag:
+    --autoplay-policy=no-user-gesture-required
+  Si el kiosco corre con Chromium en modo kiosk normal, el audio puede fallar
+  silenciosamente. Se recomienda documentar este requisito en produccion.md.
+
+¿Qué hay ahora?
+  - standby.js línea 110: vid.muted = true (hardcodeado)
+  - La tabla clinic tiene columna standby_config JSONB (o campos sueltos).
+  - El admin puede configurar modo, título, subtítulo del standby.
+
+Pasos:
+  Backend:
+  1. Agregar columna en clinic:
+       ALTER TABLE clinic ADD COLUMN standby_video_sound BOOLEAN NOT NULL DEFAULT false;
+     → Nueva migración: apps/api/migrations/012_standby_video_sound.sql
+     → Terminar con: INSERT INTO schema_migrations (version, name)
+                     VALUES ('012', 'standby_video_sound') ON CONFLICT DO NOTHING;
+  2. En GET /kiosk/bootstrap (kiosk.ts), incluir standby_video_sound en la
+     respuesta del objeto standby: { ..., video_sound: clinic.standby_video_sound }
+  3. En admin-clinic.ts, agregar standby_video_sound al PUT de configuración
+     y al GET de datos de la clínica.
+
+  Admin frontend:
+  4. En la pantalla de configuración de standby del admin, agregar un toggle:
+     "Video con sonido: [ ] Activar"
+     Solo visible cuando el modo de standby es "video".
+
+  Kiosco frontend:
+  5. En standby.js, cambiar:
+       vid.muted = true
+     por:
+       vid.muted = !(state.config?.standby?.video_sound ?? false)
+  6. Agregar vid.volume = 1.0 cuando muted = false.
+
+Archivos:
+  apps/api/migrations/012_standby_video_sound.sql  ← NUEVO
+  apps/api/src/routes/kiosk.ts                      ← incluir en bootstrap
+  apps/api/src/routes/admin-clinic.ts               ← leer/escribir campo
+  apps/admin-frontend/src/screens/clinic-config.js  ← toggle UI
+  apps/kiosco-frontend/src/screens/standby.js       ← usar video_sound
+
+
+═══════════════════════════════════════════════════════════════════════════════
+BLOQUE B — MEDIO (cambios en backend o flujo de UI, riesgo controlado)
+═══════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+B1. LOGO DE CLÍNICA EN HEADER DE TODAS LAS PANTALLAS  [C3]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★☆☆☆
+Riesgo     : BAJO-MEDIO — nuevo endpoint de upload, cambio en layout global
+Impacto    : API + Admin frontend + Kiosco frontend (todas las pantallas)
+
+¿Qué hay ahora?
+  - clinic.logo_path existe en la BD (TEXT, puede ser null).
+  - El campo se retorna en GET /kiosk/bootstrap → clinic.logo_path
+  - En standby.js hay lógica para mostrar logo si existe.
+  - No hay endpoint de upload de logo. El standby media usa @fastify/multipart.
+  - El resto de pantallas (home, booking, appointments, etc.) NO muestran logo.
+
+Estrategia:
+  El logo se sube una vez desde el admin y se sirve como archivo estático.
+  En el kiosco, el router inyecta el logo en el header de todas las pantallas
+  a través de un componente compartido.
+
+Pasos:
+  Backend:
+  1. En admin-clinic.ts, agregar endpoint:
+       PUT /admin/clinic/logo  (multipart, acepta PNG/JPG/WEBP, max 2MB)
+     → Guarda en uploads/clinic-logo.<ext>
+     → Actualiza clinic.logo_path
+  2. En kiosk.ts (GET /kiosk/bootstrap), el logo ya se expone como logo_path.
+     Verificar que se expone como URL pública: /public/clinic-logo
+  3. Agregar ruta estática GET /public/clinic-logo → sirve el archivo guardado.
+
+  Admin frontend:
+  4. En clinic-config.js, agregar sección "Logo de la clínica":
+     - Vista previa de la imagen actual
+     - Botón "Cambiar logo" (file input, acepta imagen)
+     - Upload al nuevo endpoint
+
+  Kiosco frontend:
+  5. Crear componente apps/kiosco-frontend/src/components/clinic-header.js:
+       export function renderClinicHeader(logoUrl, clinicName) {
+         // Retorna HTML del header con imagen o nombre de texto
+       }
+  6. En router.js o en cada pantalla que use <header class="screen-header">,
+     inyectar el logo antes del título de la pantalla.
+     Opción más limpia: modificar el router para que envuelva cada screen
+     con un header global que incluya el logo.
+  7. CSS: .clinic-header-logo { max-height: 60px; max-width: 200px }
+     El logo en header debe ser más pequeño que en standby (donde puede ser 140px).
+
+Nota de seguridad: validar tipo MIME y tamaño del archivo en el backend.
+
+Archivos:
+  apps/api/src/routes/admin-clinic.ts               ← nuevo endpoint upload logo
+  apps/api/uploads/                                  ← archivo del logo
+  apps/kiosco-frontend/src/components/clinic-header.js  ← NUEVO componente
+  apps/kiosco-frontend/src/router.js                ← inyectar header global
+  apps/kiosco-frontend/src/styles.css               ← estilos del logo en header
+  apps/admin-frontend/src/screens/clinic-config.js  ← UI upload logo
+
+
+──────────────────────────────────────────────────────────────────────────────
+B2. ACUERDOS DE PAGO — VERIFICACIÓN Y PESTAÑA  [C8 + C9]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★☆☆☆
+Riesgo     : BAJO — no se modifica lógica de pagos existente
+Impacto    : Kiosco frontend (payment.js + styles)
+
+C8 — Acuerdos de pago:
+  Decisión: usar el saldo de tratamientos que ya existe (ya retornado por
+  GET /api/v1/pacientes/:id/tratamientos → campo saldo_pendiente).
+  No se implementa endpoint de acuerdos de Dentalink por ahora.
+  → Marcar como PENDIENTE: investigar si Dentalink tiene /api/v1/acuerdos.
+     Si existe en una futura versión, se puede agregar sin romper nada.
+
+C9 — Rediseño de la pestaña de pagos:
+  El archivo docs/pestaña_pagos.html muestra:
+    - Header con gradiente azul oscuro, avatar del paciente, nombre grande
+    - Sección "Estado de Cuenta" con tarjetas por tratamiento
+    - Para cada tratamiento: nombre, total, abonado, saldo pendiente,
+      barra de progreso y botón "Pagar"
+    - Estilo oscuro profesional (azul #003c96 / #001d5c)
+
+  ¿Qué hay ahora?
+    - payment.js maneja el flujo QR/Wompi (no tocar esta lógica)
+    - treatments.js muestra la lista de tratamientos con saldo
+    La pestaña de pagos en el kiosco es básicamente treatments.js.
+
+  Pasos:
+  1. Identificar si C9 significa rediseñar treatments.js o payment.js.
+     → Según el HTML de referencia, se trata de la vista de "estado de cuenta"
+        previa al pago, es decir, treatments.js antes de presionar "Pagar".
+  2. Rediseñar treatments.js:
+     - Header estilo tarjeta azul oscuro con nombre y avatar del paciente
+     - Por cada tratamiento con saldo > 0: tarjeta con barra de progreso
+       (abonado / total), monto pendiente destacado, botón "Pagar ahora"
+     - Tratamientos finalizados (saldo=0): tarjeta gris con ✓
+  3. Agregar estilos en styles.css: .treatment-card, .treatment-progress-bar, etc.
+  4. NO tocar payment.js — la lógica de Wompi/QR no cambia.
+
+  RIESGO: treatments.js actualmente navega a payment.js pasando
+  (treatmentId, amountCop, description). No cambiar esa interfaz de navegación.
+
+Archivos:
+  apps/kiosco-frontend/src/screens/treatments.js   ← rediseño visual
+  apps/kiosco-frontend/src/styles.css               ← nuevos estilos
+
+
+──────────────────────────────────────────────────────────────────────────────
+B3. CALENDARIO DE 2 MESES PARA AGENDAR CITA  [C1]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★★☆☆
+Riesgo     : MEDIO — reemplaza el paso 'date' del booking; no toca backend
+Impacto    : Kiosco frontend (booking.js + styles.css)
+
+¿Qué hay ahora?
+  - booking.js step 'date': renderiza DEFAULT_SEARCH_DAYS=14 días como
+    tarjetas simples en grid. La función renderDateStep() genera un array
+    de fechas y crea botones para cada una.
+  - El backend permite hasta 90 días al futuro y 30 días de ventana de búsqueda.
+
+PRECAUCIÓN: No cambiar la ventana de búsqueda de slots (MAX_SEARCH_WINDOW_DAYS=30)
+en el backend. El calendario muestra fechas, pero los slots se piden solo cuando
+el usuario toca un día (consulta puntual de 1 día → from=fecha&to=fecha).
+
+Pasos:
+  Frontend (booking.js):
+  1. Crear función renderCalendar(mesOffset, dentistId, selection, onSelectDate):
+     - Genera cuadrícula 7 columnas (L M M J V S D)
+     - Encabezado con nombre del mes y flechas ← →
+     - Celdas: días del mes anterior en gris claro (no seleccionables)
+               días del mes actual: hábiles seleccionables, pasados en gris
+               domingos: siempre en gris (no seleccionables por defecto)
+  2. Mostrar dos calendarios en pantalla simultáneamente:
+     mes actual + mes siguiente (scroll vertical si no caben).
+  3. Al tocar un día hábil:
+     - Marcar como seleccionado (clase CSS .date-selected)
+     - Llamar GET /me/booking/slots?dentist_id=X&from=fecha&to=fecha&duration=N
+     - Si no hay slots disponibles ese día: mostrar toast "Sin disponibilidad
+       este día, elige otro"
+  4. Los días con al menos 1 slot disponible se marcan visualmente
+     (punto verde o borde de color) — pero SOLO después de que el usuario
+     haga clic (no se pre-cargan todos los slots de 60 días, sería costoso).
+  5. Mantener la constante MAX_FUTURE_DAYS = 60 en el frontend (2 meses vista).
+
+  CSS:
+  6. .booking-calendar: display: flex; gap: 2rem; flex-wrap: wrap
+     .calendar-month: cuadrícula 7 col
+     .calendar-day: botón táctil cuadrado ~70px
+     .calendar-day--past: gris, pointer-events: none
+     .calendar-day--unavailable: gris claro
+     .calendar-day--selected: azul primario, color blanco
+     .calendar-day--today: borde azul punteado
+
+Archivos:
+  apps/kiosco-frontend/src/screens/booking.js  ← reemplazar renderDateStep()
+  apps/kiosco-frontend/src/styles.css           ← estilos del calendario
+
+Riesgo de regresión:
+  - Los pasos 'branch', 'dentist', 'slot' y 'confirm' de booking NO cambian.
+  - El backend no cambia en absoluto.
+  - Si algo falla, se puede volver al código anterior del renderDateStep().
+
+
+═══════════════════════════════════════════════════════════════════════════════
+BLOQUE C — DIFÍCIL (cambios en auth, backend crítico o integración multi-capa)
+═══════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+C1. COMPROBANTE DE PAGO A CORREO DEL ADMINISTRADOR  [C6]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★★☆☆
+Riesgo     : MEDIO — modifica notifications.ts que es crítico en el flujo Wompi
+Impacto    : API (notifications.ts, admin-clinic.ts, payments.ts)
+
+¿Qué hay ahora?
+  - notifications.ts → sendPaymentReceipt() envía email y SMS al PACIENTE.
+  - La función es llamada desde el webhook de Wompi al recibir APPROVED.
+  - clinic no tiene campo para email del administrador de notificaciones.
+
+PRECAUCIÓN: sendPaymentReceipt() es idempotente (receipt_sent_at). Cualquier
+excepción en el envío al admin NO debe bloquear el flujo principal del paciente.
+
+Pasos:
+  Backend:
+  1. Agregar en tabla clinic:
+       ALTER TABLE clinic ADD COLUMN notification_email TEXT;
+     → Migración: 013_notification_email.sql
+  2. En admin-clinic.ts: exponer y permitir editar notification_email.
+  3. En notifications.ts → sendPaymentReceipt():
+     a. Leer clinic.notification_email de la BD.
+     b. Si tiene valor, componer email adicional con:
+          - Asunto: "Comprobante de pago — [Clínica] — $[monto]"
+          - Datos del paciente: nombre (enmascarado parcialmente), cédula,
+            teléfono, email
+          - Datos del pago: referencia, monto, método, fecha/hora
+          - Tratamiento: nombre, saldo anterior, saldo después del pago
+          - HTML estructurado, no PDF (los PDF generados del lado servidor
+            requieren puppeteer o jspdf, que son dependencias pesadas)
+     c. Enviar con resend.sendEmail() en bloque try/catch independiente.
+        Si falla → logger.error() pero NO lanzar excepción.
+  4. Si se requiere PDF en el futuro, se puede agregar como segundo paso;
+     por ahora enviar HTML enriquecido es suficiente.
+
+  NOTA sobre PDF: generar PDFs en Node.js sin Puppeteer requiere librerías
+  como pdfkit o jspdf. Agrega complejidad. Recomendación: primera versión
+  en HTML bien formateado; PDF en iteración futura si el cliente lo prioriza.
+
+Archivos:
+  apps/api/migrations/013_notification_email.sql    ← NUEVO
+  apps/api/src/lib/notifications.ts                  ← envío al admin
+  apps/api/src/routes/admin-clinic.ts               ← exponer campo
+  apps/admin-frontend/src/screens/clinic-config.js  ← input email notif.
+
+
+──────────────────────────────────────────────────────────────────────────────
+C2. BOOKING CON SELECCIÓN DE TRATAMIENTO/PROCEDIMIENTO  [C10]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★★★☆
+Riesgo     : ALTO — agrega un paso al flujo de booking; afecta slots y duración
+Impacto    : Kiosco frontend + Admin frontend + API (booking.ts)
+
+¿Qué hay ahora?
+  - clinic.procedures: JSONB array de { name, duration, description }
+    Gestionado como parte de la config de la clínica.
+  - El admin puede editar procedures como JSON en clinic-config.js (si está
+    implementado) o no tiene UI dedicada aún.
+  - El booking usa duracion_cita_minutos de clinic como duración fija.
+  - Flujo actual: branch → dentist → date → slot → confirm
+
+Nuevo flujo: branch → dentist → treatment → date → slot → confirm
+
+Pasos:
+  Backend:
+  1. Verificar que GET /kiosk/bootstrap ya retorna clinic.procedures con duration.
+  2. En GET /me/booking/slots, el parámetro ?duration=N ya existe y funciona.
+     No se necesita cambio en backend para el flujo básico.
+  3. Opcional: agregar tabla separada `procedures` si se quiere más flexibilidad
+     (id, name, duration_minutes, active). Alternativa más simple: seguir con
+     JSONB en clinic, agregar campo `id` a cada procedimiento.
+
+  Admin frontend (clinic-config.js):
+  4. Agregar sección "Procedimientos / Tratamientos" con:
+     - Lista editable de procedimientos (nombre, duración en min, descripción)
+     - Botones: Agregar, Editar, Eliminar
+     - Guardar vía PUT /admin/clinic (ya existe, actualizar procedures JSONB)
+     NOTA: Dentalink tiene sus propios tratamientos por paciente en
+           /api/v1/tratamientos. Los "procedures" del admin son los servicios
+           que OFRECE la clínica (catálogo), distintos de los tratamientos
+           activos del paciente. No confundir.
+
+  Kiosco frontend (booking.js):
+  5. Agregar 'treatment' al array STEPS entre 'dentist' y 'date':
+       const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
+  6. Crear renderTreatmentStep(content, selection, callbacks):
+     - Muestra lista de procedures del state.config.procedures
+     - El paciente selecciona uno
+     - Se guarda en selection.treatment = { name, duration_minutes }
+  7. En renderDateStep y renderSlotStep, usar selection.treatment.duration_minutes
+     como el ?duration= al llamar getAvailableSlots().
+  8. En el paso 'confirm', mostrar el tratamiento seleccionado en el resumen.
+  9. En POST /me/booking/appointments, incluir el tratamiento en las notas:
+       notas: selection.treatment.name + (si el paciente escribió algo)
+
+  RIESGOS Y MITIGACIONES:
+  - Si procedures está vacío: mostrar paso de tratamiento con opción
+    "Consulta general" por defecto para no bloquear el flujo.
+  - Si selection.treatment es null al llegar a 'date': redirigir a 'treatment'.
+  - La duración del slot puede cambiar si el paciente vuelve atrás y cambia
+    de tratamiento: limpiar selection.date y selection.slot en clearForwardSelections().
+
+Archivos:
+  apps/api/src/routes/booking.ts                    ← verificar, mínimos cambios
+  apps/kiosco-frontend/src/screens/booking.js       ← nuevo paso treatment
+  apps/kiosco-frontend/src/styles.css               ← tarjetas de tratamiento
+  apps/admin-frontend/src/screens/clinic-config.js  ← UI de gestión procedures
+  apps/api/src/routes/admin-clinic.ts               ← verificar PUT procedures
+
+
+──────────────────────────────────────────────────────────────────────────────
+C3. LOGIN SOLO CON TELÉFONO + OTP A EMAIL Y SMS + CLI  [C4]
+──────────────────────────────────────────────────────────────────────────────
+Dificultad : ★★★★★
+Riesgo     : MUY ALTO — modifica el flujo de autenticación (ruta crítica)
+Impacto    : API (patient-auth.ts, otp_codes) + Kiosco frontend (login-cedula.js)
+
+¿Qué hay ahora?
+  - Flujo actual: cédula → lookup en Dentalink por rut → OTP → sesión
+  - login-cedula.js pide: cédula + teléfono (para verificación)
+  - POST /auth/request-otp busca paciente por cédula en Dentalink
+  - POST /auth/verify-otp valida el código y crea sesión
+
+¿Qué se quiere?
+  - El paciente ingresa SOLO su número de teléfono
+  - El backend busca en Dentalink por celular
+  - Envía OTP tanto por SMS como por email (actualmente solo a uno de los dos)
+  - Comando CLI para ver el OTP activo: pnpm dk:otp <teléfono>
+
+RIESGO PRINCIPAL: Dentalink puede tener dos pacientes con el mismo teléfono
+(familia que comparte número, teléfonos mal registrados). Se debe manejar.
+
+Pasos:
+  Backend:
+  1. En dentalink.ts, agregar método:
+       lookupPatientByCelular(celular: string, token: string | null)
+     → GET /api/v1/pacientes?q={"celular":{"eq":"3XXXXXXXXX"}}
+     → Normalizar celular (quitar +57 para Dentalink, que guarda sin prefijo)
+     → Si retorna múltiples: retornar el primero y loguear warning
+       (en Dentalink real esto no debería pasar, pero en mock sí puede)
+  2. En patient-auth.ts, modificar POST /auth/request-otp:
+     - Aceptar campo `phone` (celular) en lugar de `cedula`
+     - Buscar paciente por celular usando el nuevo método
+     - Si no se encuentra: error 404 "Teléfono no registrado"
+     - Generar y guardar OTP igual que antes (tabla otp_codes)
+     - ENVIAR a AMBOS canales: email del paciente + celular (SMS)
+       La función sendOtp() ya está en notifications.ts — verificar si
+       soporta envío dual o si hay que extenderla.
+  3. POST /auth/verify-otp: no cambia (valida código, crea sesión).
+  4. POST /auth/login-direct (OTP_REQUIRED=false):
+     Adaptación: acepta solo phone en lugar de cedula + phone.
+
+  OTP dual (email + SMS):
+  5. En la función que envía OTP, llamar tanto a:
+       await sms.send(phone, `Tu código es ${otp}`)
+       await email.send(patientEmail, `Tu código es ${otp}`)
+     En paralelo (Promise.allSettled para que uno no bloquee al otro).
+     Si el paciente no tiene email en Dentalink → solo SMS.
+     Si no tiene teléfono válido → solo email.
+
+  CLI dk:otp:
+  6. Crear apps/api/src/scripts/get-otp.ts:
+       #!/usr/bin/env tsx
+       // Uso: tsx src/scripts/get-otp.ts +573001234567
+       // Lee Redis: otp:<phone>:... y muestra el código activo
+  7. En package.json del api, agregar script:
+       "dk:otp": "tsx src/scripts/get-otp.ts"
+  8. Usar: pnpm --filter @dentalkiosco/api dk:otp +573001234567
+     SOLO en modo desarrollo (el script verifica NODE_ENV !== 'production')
+
+  Kiosco frontend:
+  9. Reemplazar la pantalla login-cedula.js:
+     - Eliminar campo "Cédula"
+     - Mantener campo "Celular" (10 dígitos, prefijo +57 fijo)
+     - Texto: "Ingresa tu número de celular registrado en la clínica"
+     - Botón: "Enviar código"
+  10. En login-otp.js, el mensaje de confirmación cambia:
+      "Enviamos tu código al correo y al celular registrados"
+
+  MEDIDAS DE SEGURIDAD ADICIONALES:
+  - Rate limit: máx 3 intentos de request-otp por teléfono por hora
+    (ya existe rate limiting en el backend, extender para esta ruta)
+  - El OTP sigue teniendo TTL de 5 minutos y se invalida al usarse
+  - No exponer en la respuesta si el teléfono existe o no (evitar enumeración):
+    responder siempre "Si el número está registrado, recibirás un código"
+
+  COMPATIBILIDAD CON FLUJO ACTUAL:
+  - Si OTP_REQUIRED=false: el nuevo login-direct también acepta solo teléfono
+  - Los tests en apps/api/tests/ que prueban auth deben actualizarse
+  - ⚠ Hacer branch separado para este cambio por su criticidad
+
+Archivos:
+  apps/api/src/routes/patient-auth.ts              ← modificar request-otp
+  apps/api/src/lib/dentalink.ts                    ← lookupPatientByCelular()
+  apps/api/src/lib/notifications.ts                ← OTP a ambos canales
+  apps/api/src/scripts/get-otp.ts                  ← NUEVO script CLI
+  apps/api/package.json                            ← agregar script dk:otp
+  apps/kiosco-frontend/src/screens/login-cedula.js ← solo campo teléfono
+  apps/kiosco-frontend/src/screens/login-otp.js   ← actualizar mensaje
+  apps/api/tests/patient-auth.test.ts              ← actualizar tests
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ORDEN DE IMPLEMENTACIÓN RECOMENDADO
+═══════════════════════════════════════════════════════════════════════════════
+
+  Semana 1 — Sin riesgo de regresión:
+    1. A1 — Ocultar registro                    (30 min)
+    2. A2 — Fotos dentista más grandes          (1 hora)
+    3. B2 — Pestaña pagos / acuerdos            (1 día)
+
+  Semana 2 — Cambios visuales con backend menor:
+    4. A3 — Video con sonido (admin toggle)     (4 horas)
+    5. B1 — Logo clínica en header              (1 día)
+    6. B3 — Calendario 2 meses                 (1.5 días)
+
+  Semana 3 — Backend crítico:
+    7. C1 — Comprobante admin por correo        (1 día)
+    8. C2 — Booking con tratamiento             (2 días)
+
+  Semana 4 — Auth (requiere branch separado y QA extenso):
+    9. C3 — Login solo teléfono + CLI           (2-3 días + testing)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+QUÉ NO TOCAR — FUNCIONALIDADES CRÍTICAS PROTEGIDAS
+═══════════════════════════════════════════════════════════════════════════════
+
+  ❌ payments.ts / webhook Wompi — solo añadir envío al admin, nunca modificar
+     la firma de verificación ni el flujo de estados (pending/approved/declined)
+
+  ❌ patient-auth.ts / verify-otp — la validación del código y creación de
+     sesión no se modifican; solo cambia quién llama y con qué datos
+
+  ❌ dentalink.ts / cancelAppointment — no tocar la lógica de cancelación
+
+  ❌ migrations anteriores (001-011) — nunca modificar archivos ya aplicados
+
+  ❌ reconciler.ts — no tocar; corre como setInterval y maneja pagos offline
+
+  ❌ licenseMiddleware — no tocar; se aplica a todas las rutas
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PENDIENTES / REQUIEREN DECISIÓN FUTURA
+═══════════════════════════════════════════════════════════════════════════════
+
+  P1. Acuerdos de pago Dentalink: investigar si /api/v1/acuerdos existe en la
+      versión específica de Dentalink del cliente. Si existe, agregar en
+      dentalink.ts como getPaymentAgreements() sin afectar flujos actuales.
+
+  P2. PDF del comprobante admin: implementar con pdfkit en iteración futura
+      si el cliente lo prioriza sobre el HTML enriquecido.
+
+  P3. Ambigüedad de teléfonos duplicados: si en producción aparecen pacientes
+      con el mismo número, definir política: ¿pedir cédula para desambiguar?
+      ¿mostrar selección de nombre? Actualmente se toma el primer resultado.
+
+  P4. Tamaño del video vertical en standby: el cliente mencionó que el video
+      es vertical y debe ocupar más pantalla. Definir porcentaje exacto
+      (¿70%?, ¿90%?, ¿full height?) para implementar el CSS.
+
+===============================================================================
+FIN DEL PLAN — DentalKiosco 23 mayo 2026
+===============================================================================

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estado de Cuenta Ortodoncia</title>
+
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
+<style>
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Segoe UI',sans-serif;
+}
+
+body{
+    background:#edf2f7;
+    padding:30px;
+}
+
+.container{
+    max-width:1400px;
+    margin:auto;
+}
+
+/* HEADER */
+
+.header{
+    background:linear-gradient(135deg,#003c96,#001d5c);
+    color:white;
+    border-radius:20px;
+    padding:30px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    box-shadow:0 10px 25px rgba(0,0,0,.2);
+}
+
+.patient{
+    display:flex;
+    align-items:center;
+    gap:20px;
+}
+
+.avatar{
+    width:90px;
+    height:90px;
+    border-radius:50%;
+    background:white;
+    color:#003c96;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-size:42px;
+}
+
+.patient-info h1{
+    font-size:48px;
+    font-weight:800;
+}
+
+.patient-info p{
+    font-size:24px;
+    opacity:.95;
+}
+
+.date-info{
+    text-align:right;
+    font-size:22px;
+}
+
+/* TITULO */
+
+.section-title{
+    margin:35px 0 20px;
+    color:#0d2d75;
+    font-size:40px;
+    font-weight:800;
+}
+
+/* TARJETAS PRINCIPALES */
+
+.cards{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:25px;
+}
+
+.card{
+    background:white;
+    border-radius:25px;
+    overflow:hidden;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+
+.card-header{
+    text-align:center;
+    color:white;
+    padding:20px;
+    font-size:30px;
+    font-weight:800;
+}
+
+.blue{
+    background:#0069ff;
+}
+
+.orange{
+    background:#ff4f1f;
+}
+
+.green{
+    background:#0ea63a;
+}
+
+.card-body{
+    padding:30px;
+}
+
+.card-subtitle{
+    color:#666;
+    text-align:center;
+    margin-bottom:20px;
+}
+
+.amount{
+    text-align:center;
+    font-size:68px;
+    font-weight:900;
+    margin-bottom:25px;
+}
+
+.amount.blue-text{
+    color:#0069ff;
+}
+
+.amount.orange-text{
+    color:#ff4f1f;
+}
+
+.amount.green-text{
+    color:#0ea63a;
+}
+
+.info-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    font-size:22px;
+    margin-top:15px;
+}
+
+.note{
+    margin-top:25px;
+    background:#f4f6fa;
+    padding:18px;
+    border-radius:15px;
+    color:#555;
+}
+
+/* ESTADO DEL TRATAMIENTO */
+
+.treatment{
+    margin-top:35px;
+    background:white;
+    border-radius:25px;
+    padding:35px;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+
+.summary{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:25px;
+}
+
+.summary-box{
+    text-align:center;
+}
+
+.summary-box h3{
+    color:#666;
+    margin-bottom:10px;
+}
+
+.summary-box .value{
+    font-size:58px;
+    font-weight:900;
+}
+
+.blue-v{
+    color:#003c96;
+}
+
+.green-v{
+    color:#0ea63a;
+}
+
+.red-v{
+    color:#ff4f1f;
+}
+
+.progress-area{
+    margin-top:35px;
+}
+
+.progress-label{
+    text-align:center;
+    font-size:24px;
+    font-weight:700;
+    margin-bottom:15px;
+}
+
+.progress{
+    height:35px;
+    border-radius:30px;
+    overflow:hidden;
+    background:#dbe4f0;
+}
+
+.progress-fill{
+    width:86%;
+    height:100%;
+    background:#0ea63a;
+}
+
+.percent{
+    text-align:right;
+    margin-top:10px;
+    font-size:60px;
+    color:#0ea63a;
+    font-weight:900;
+}
+
+/* FOOTER */
+
+.bottom{
+    margin-top:35px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:25px;
+}
+
+.footer-card{
+    background:white;
+    border-radius:20px;
+    padding:25px;
+    box-shadow:0 10px 25px rgba(0,0,0,.12);
+}
+
+.footer-title{
+    color:#0d2d75;
+    font-size:26px;
+    font-weight:800;
+    margin-bottom:10px;
+}
+
+.footer-value{
+    font-size:52px;
+    font-weight:900;
+    color:#003c96;
+}
+
+@media(max-width:900px){
+
+    .header{
+        flex-direction:column;
+        gap:20px;
+        text-align:center;
+    }
+
+    .summary{
+        grid-template-columns:1fr;
+    }
+
+    .bottom{
+        grid-template-columns:1fr;
+    }
+
+    .patient-info h1{
+        font-size:34px;
+    }
+
+    .amount{
+        font-size:50px;
+    }
+
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <!-- HEADER -->
+
+    <div class="header">
+
+        <div class="patient">
+
+            <div class="avatar">
+                <i class="fa-solid fa-user"></i>
+            </div>
+
+            <div class="patient-info">
+                <h1>María Gómez Pérez</h1>
+                <p>Documento: 1.234.567.890</p>
+            </div>
+
+        </div>
+
+        <div class="date-info">
+            <i class="fa-solid fa-calendar-days"></i><br>
+            Estado de cuenta<br>
+            <strong>25 de mayo de 2024</strong>
+        </div>
+
+    </div>
+
+    <!-- TITULO -->
+
+    <div class="section-title">
+        Resumen de Pagos
+    </div>
+
+    <!-- TARJETAS -->
+
+    <div class="cards">
+
+        <div class="card">
+
+            <div class="card-header blue">
+                CUOTA DEL MES
+            </div>
+
+            <div class="card-body">
+
+                <div class="card-subtitle">
+                    Próxima cuota a pagar
+                </div>
+
+                <div class="amount blue-text">
+                    $1.250.000
+                </div>
+
+                <div class="info-row">
+                    <i class="fa-solid fa-calendar"></i>
+                    Vence: 25 mayo 2024
+                </div>
+
+                <div class="note">
+                    Corresponde a la cuota mensual acordada.
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="card-header orange">
+                SALDO VENCIDO
+            </div>
+
+            <div class="card-body">
+
+                <div class="card-subtitle">
+                    Cuotas pendientes
+                </div>
+
+                <div class="amount orange-text">
+                    $500.000
+                </div>
+
+                <div class="info-row">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    1 cuota vencida
+                </div>
+
+                <div class="note">
+                    Vencida desde el 25 abril 2024.
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="card-header green">
+                PAGAR HOY PARA QUEDAR AL DÍA
+            </div>
+
+            <div class="card-body">
+
+                <div class="card-subtitle">
+                    Incluye cuota actual + vencida
+                </div>
+
+                <div class="amount green-text">
+                    $1.750.000
+                </div>
+
+                <div class="info-row">
+                    <i class="fa-solid fa-circle-check"></i>
+                    Cuenta normalizada después del pago
+                </div>
+
+                <div class="note">
+                    Cuota vencida: $500.000<br>
+                    Cuota actual: $1.250.000
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- ESTADO TRATAMIENTO -->
+
+    <div class="treatment">
+
+        <div class="section-title" style="margin-top:0">
+            Estado de tu Tratamiento
+        </div>
+
+        <div class="summary">
+
+            <div class="summary-box">
+                <h3>Valor Total</h3>
+                <div class="value blue-v">$18.000.000</div>
+            </div>
+
+            <div class="summary-box">
+                <h3>Valor Pagado</h3>
+                <div class="value green-v">$15.500.000</div>
+            </div>
+
+            <div class="summary-box">
+                <h3>Saldo Pendiente</h3>
+                <div class="value red-v">$2.500.000</div>
+            </div>
+
+        </div>
+
+        <div class="progress-area">
+
+            <div class="progress-label">
+                Avance financiero del tratamiento
+            </div>
+
+            <div class="progress">
+                <div class="progress-fill"></div>
+            </div>
+
+            <div class="percent">
+                86%
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- PIE -->
+
+    <div class="bottom">
+
+        <div class="footer-card">
+
+            <div class="footer-title">
+                Último Pago Registrado
+            </div>
+
+            <div class="footer-value">
+                $1.000.000
+            </div>
+
+            <p>25 abril 2024</p>
+
+        </div>
+
+        <div class="footer-card">
+
+            <div class="footer-title">
+                Recomendación
+            </div>
+
+            <p style="font-size:22px;">
+                Realiza tu pago antes de la fecha límite para evitar generar nuevas cuotas vencidas.
+            </p>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>

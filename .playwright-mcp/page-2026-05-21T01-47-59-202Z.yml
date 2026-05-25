@@ -1,0 +1,82 @@
+- generic [ref=e16]:
+  - navigation [ref=e17]:
+    - generic [ref=e18]: 🦷 DentalKiosco
+    - button "Dashboard" [ref=e19] [cursor=pointer]
+    - button "Configuración clínica" [ref=e20] [cursor=pointer]
+    - button "Odontólogos" [ref=e21] [cursor=pointer]
+    - button "Kioscos" [ref=e22] [cursor=pointer]
+    - button "Transacciones" [ref=e23] [cursor=pointer]
+    - button "Cerrar sesión" [ref=e25] [cursor=pointer]
+  - main [ref=e26]:
+    - heading "Kioscos" [level=1] [ref=e60]
+    - paragraph [ref=e61]: Gestiona los dispositivos kiosco de la clínica. Al crear un kiosco se genera un token JWT que debes copiar antes de cerrar — no se puede recuperar después.
+    - generic [ref=e119]:
+      - heading "Crear kiosco" [level=3] [ref=e120]
+      - generic [ref=e121]:
+        - generic [ref=e122]: Nombre *
+        - 'textbox "Ej: Recepción Principal" [active] [ref=e123]'
+      - generic [ref=e124]:
+        - generic [ref=e125]: Ubicación
+        - 'textbox "Ej: Piso 1, Sala de espera" [ref=e126]'
+      - generic [ref=e127]:
+        - generic [ref=e128]: Tipo de dispositivo
+        - combobox [ref=e129]:
+          - option "Desconocido" [selected]
+          - option "PC"
+          - option "Tablet Android"
+      - generic [ref=e130]:
+        - button "Crear" [ref=e131] [cursor=pointer]
+        - button "Cancelar" [ref=e132] [cursor=pointer]
+    - table [ref=e66]:
+      - rowgroup [ref=e67]:
+        - row "Nombre Ubicación Dispositivo Estado Última conexión Expira token Acciones" [ref=e68]:
+          - columnheader "Nombre" [ref=e69]
+          - columnheader "Ubicación" [ref=e70]
+          - columnheader "Dispositivo" [ref=e71]
+          - columnheader "Estado" [ref=e72]
+          - columnheader "Última conexión" [ref=e73]
+          - columnheader "Expira token" [ref=e74]
+          - columnheader "Acciones" [ref=e75]
+      - rowgroup [ref=e76]:
+        - row "jopsdjaosda f4c631a3… sdasdasdascasd PC Activo 20/05/2026, 07:12 p. m. 18/08/2026, 07:10 p. m. Desactivar Revocar" [ref=e77]:
+          - cell "jopsdjaosda f4c631a3…" [ref=e78]:
+            - generic [ref=e79]: jopsdjaosda
+            - generic [ref=e80]: f4c631a3…
+          - cell "sdasdasdascasd" [ref=e81]
+          - cell "PC" [ref=e82]
+          - cell "Activo" [ref=e83]:
+            - generic [ref=e84]: Activo
+          - cell "20/05/2026, 07:12 p. m." [ref=e85]
+          - cell "18/08/2026, 07:10 p. m." [ref=e86]
+          - cell "Desactivar Revocar" [ref=e87]:
+            - generic [ref=e88]:
+              - button "Desactivar" [ref=e89] [cursor=pointer]
+              - button "Revocar" [ref=e90] [cursor=pointer]
+        - row "REG-Test f745b703… — Desconocido Activo Nunca 21/05/2026, 02:49 p. m. Desactivar Revocar" [ref=e91]:
+          - cell "REG-Test f745b703…" [ref=e92]:
+            - generic [ref=e93]: REG-Test
+            - generic [ref=e94]: f745b703…
+          - cell "—" [ref=e95]
+          - cell "Desconocido" [ref=e96]
+          - cell "Activo" [ref=e97]:
+            - generic [ref=e98]: Activo
+          - cell "Nunca" [ref=e99]
+          - cell "21/05/2026, 02:49 p. m." [ref=e100]
+          - cell "Desactivar Revocar" [ref=e101]:
+            - generic [ref=e102]:
+              - button "Desactivar" [ref=e103] [cursor=pointer]
+              - button "Revocar" [ref=e104] [cursor=pointer]
+        - row "Recepción Demo 22222222… Lobby principal PC Activo 20/05/2026, 07:57 p. m. 16/08/2026, 01:16 p. m. Desactivar Revocar" [ref=e105]:
+          - cell "Recepción Demo 22222222…" [ref=e106]:
+            - generic [ref=e107]: Recepción Demo
+            - generic [ref=e108]: 22222222…
+          - cell "Lobby principal" [ref=e109]
+          - cell "PC" [ref=e110]
+          - cell "Activo" [ref=e111]:
+            - generic [ref=e112]: Activo
+          - cell "20/05/2026, 07:57 p. m." [ref=e113]
+          - cell "16/08/2026, 01:16 p. m." [ref=e114]
+          - cell "Desactivar Revocar" [ref=e115]:
+            - generic [ref=e116]:
+              - button "Desactivar" [ref=e117] [cursor=pointer]
+              - button "Revocar" [ref=e118] [cursor=pointer]

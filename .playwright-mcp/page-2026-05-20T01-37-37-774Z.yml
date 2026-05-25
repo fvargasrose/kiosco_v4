@@ -1,0 +1,74 @@
+- generic [ref=e88]:
+  - banner [ref=e89]:
+    - heading "Agendar cita — Fecha" [level=1] [ref=e175]
+    - button "← Volver" [ref=e91] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - generic [ref=e176]:
+        - generic: ✓1
+      - generic [ref=e178]:
+        - generic: ✓2
+      - generic [ref=e181]: "3"
+      - generic [ref=e184]: "4"
+      - generic [ref=e187]: "5"
+    - generic [ref=e108]:
+      - paragraph [ref=e188]:
+        - strong [ref=e189]: GERMAN ENRIQUE FERNANDEZ SILVA
+        - text: "· Selecciona el día:"
+      - generic [ref=e190]:
+        - button "mié 20 may." [ref=e191] [cursor=pointer]:
+          - generic [ref=e192]: mié
+          - generic [ref=e193]: "20"
+          - generic [ref=e194]: may.
+        - button "jue 21 may." [ref=e195] [cursor=pointer]:
+          - generic [ref=e196]: jue
+          - generic [ref=e197]: "21"
+          - generic [ref=e198]: may.
+        - button "vie 22 may." [ref=e199] [cursor=pointer]:
+          - generic [ref=e200]: vie
+          - generic [ref=e201]: "22"
+          - generic [ref=e202]: may.
+        - button "sáb 23 may." [ref=e203] [cursor=pointer]:
+          - generic [ref=e204]: sáb
+          - generic [ref=e205]: "23"
+          - generic [ref=e206]: may.
+        - button "lun 25 may." [ref=e207] [cursor=pointer]:
+          - generic [ref=e208]: lun
+          - generic [ref=e209]: "25"
+          - generic [ref=e210]: may.
+        - button "mar 26 may." [ref=e211] [cursor=pointer]:
+          - generic [ref=e212]: mar
+          - generic [ref=e213]: "26"
+          - generic [ref=e214]: may.
+        - button "mié 27 may." [ref=e215] [cursor=pointer]:
+          - generic [ref=e216]: mié
+          - generic [ref=e217]: "27"
+          - generic [ref=e218]: may.
+        - button "jue 28 may." [ref=e219] [cursor=pointer]:
+          - generic [ref=e220]: jue
+          - generic [ref=e221]: "28"
+          - generic [ref=e222]: may.
+        - button "vie 29 may." [ref=e223] [cursor=pointer]:
+          - generic [ref=e224]: vie
+          - generic [ref=e225]: "29"
+          - generic [ref=e226]: may.
+        - button "sáb 30 may." [ref=e227] [cursor=pointer]:
+          - generic [ref=e228]: sáb
+          - generic [ref=e229]: "30"
+          - generic [ref=e230]: may.
+        - button "lun 1 jun." [ref=e231] [cursor=pointer]:
+          - generic [ref=e232]: lun
+          - generic [ref=e233]: "1"
+          - generic [ref=e234]: jun.
+        - button "mar 2 jun." [ref=e235] [cursor=pointer]:
+          - generic [ref=e236]: mar
+          - generic [ref=e237]: "2"
+          - generic [ref=e238]: jun.
+        - button "mié 3 jun." [ref=e239] [cursor=pointer]:
+          - generic [ref=e240]: mié
+          - generic [ref=e241]: "3"
+          - generic [ref=e242]: jun.
+        - button "jue 4 jun." [ref=e243] [cursor=pointer]:
+          - generic [ref=e244]: jue
+          - generic [ref=e245]: "4"
+          - generic [ref=e246]: jun.

@@ -1,3 +1,36 @@
+#Reglas del proyecto DentalKiosco:
+
+1. NUNCA tocar estos archivos sin autorización explícita:
+   - apps/api/src/routes/payments.ts (webhook Wompi)
+   - apps/api/src/lib/reconciler.ts
+   - apps/api/src/lib/license/* (middleware de licencias)
+   - apps/api/migrations/001-011_*.sql (migraciones ya aplicadas)
+
+2. Antes de modificar cualquier archivo, leerlo COMPLETO primero con view.
+   No editar a ciegas basado en suposiciones.
+
+3. Stack confirmado: Node 22, TypeScript, Fastify 4, Zod, Postgres 16, Redis 7,
+   pnpm workspaces, Vite 5, Vanilla JS (no React/Vue) en frontends.
+
+4. Migraciones: SIEMPRE nueva versión (012, 013...). NUNCA modificar previas.
+   Terminar cada migración con:
+   INSERT INTO schema_migrations (version, name)
+   VALUES ('NNN', 'nombre') ON CONFLICT DO NOTHING;
+
+5. Comandos de verificación obligatorios al terminar cada tarea:
+   - pnpm --filter @dentalkiosco/api typecheck
+   - pnpm --filter @dentalkiosco/api test
+   - pnpm --filter @dentalkiosco/api lint
+   - (frontend) pnpm --filter kiosco-frontend build
+   - (frontend) pnpm --filter admin-frontend build
+
+6. Commits: uno por tarea completada, con mensaje convencional:
+   feat(scope): descripción / fix(scope): descripción / chore: descripción
+
+7. Si algo es ambiguo, PREGUNTAR antes de asumir. No inventar endpoints,
+   nombres de campos o estructuras de tablas.
+   
+
 # DentalKiosco — Guía para Claude
 
 ## Descripción del proyecto

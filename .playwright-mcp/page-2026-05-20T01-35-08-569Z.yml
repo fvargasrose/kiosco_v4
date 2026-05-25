@@ -1,0 +1,16 @@
+- generic [ref=e11]:
+  - banner [ref=e12]:
+    - heading "Tratamiento de datos personales" [level=1] [ref=e13]
+    - button "← Cancelar" [ref=e14] [cursor=pointer]
+  - generic [ref=e16]:
+    - heading "📄 Aviso de Privacidad" [level=2] [ref=e17]
+    - generic [ref=e18]: Aviso de Privacidad test
+    - generic [ref=e19]:
+      - text: "Versión:"
+      - strong [ref=e20]: test-v1
+    - generic [ref=e21] [cursor=pointer]:
+      - checkbox "Acepto el tratamiento de mis datos personales conforme a la política descrita arriba y a la Ley 1581 de 2012." [ref=e22]
+      - generic [ref=e23]:
+        - strong [ref=e24]: Acepto el tratamiento de mis datos personales
+        - text: conforme a la política descrita arriba y a la Ley 1581 de 2012.
+    - button "Aceptar y continuar" [disabled] [ref=e25]

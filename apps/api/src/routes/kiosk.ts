@@ -154,6 +154,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
         subtitle: clinic.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
       },
       otp_required: config.OTP_REQUIRED,
+      theme: config.KIOSK_THEME,
       server_time: new Date().toISOString(),
     });
   });

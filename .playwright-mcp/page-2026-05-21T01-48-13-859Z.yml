@@ -1,0 +1,88 @@
+- generic [ref=e16]:
+  - navigation [ref=e17]:
+    - generic [ref=e18]: 🦷 DentalKiosco
+    - button "Dashboard" [ref=e19] [cursor=pointer]
+    - button "Configuración clínica" [ref=e20] [cursor=pointer]
+    - button "Odontólogos" [ref=e21] [cursor=pointer]
+    - button "Kioscos" [ref=e22] [cursor=pointer]
+    - button "Transacciones" [ref=e23] [cursor=pointer]
+    - button "Cerrar sesión" [ref=e25] [cursor=pointer]
+  - main [ref=e26]:
+    - heading "Kioscos" [level=1] [ref=e60]
+    - paragraph [ref=e61]: Gestiona los dispositivos kiosco de la clínica. Al crear un kiosco se genera un token JWT que debes copiar antes de cerrar — no se puede recuperar después.
+    - generic [ref=e133]:
+      - generic [ref=e134]: ⚠ Copia el token ahora — no se mostrará de nuevo
+      - generic [ref=e135]:
+        - text: "Pega este token en la URL del kiosco:"
+        - code [ref=e136]: http://<host>:5173/?kiosk_token=TOKEN
+      - generic [ref=e137]:
+        - textbox [ref=e138]: eyJhbGciOiJIUzI1NiJ9.eyJraW9za19uYW1lIjoiVGVzdCBBcHBsZSBUaGVtZSIsImp0aSI6IjBhMDllNzNjLWQ4M2MtNDRjNS04ZDZkLTVjYjU2NTA3ZmI5OSIsInN1YiI6IjU1MzIyMDczLTU0NjgtNDhhMS04MzhmLWY0YzA0YWI5ZjA1MSIsImlzcyI6ImRlbnRhbGtpb3NjbyIsImF1ZCI6Imtpb3NrIiwiaWF0IjoxNzc5MzI4MDkxLCJleHAiOjE3ODcxMDQwOTF9.4JbvJ4owtWf8EWtUcmrhxat76Zlboo3dhM-Bd6LceA4
+        - button "Copiar" [ref=e139] [cursor=pointer]
+      - button "Cerrado, ya copié el token" [ref=e141] [cursor=pointer]
+    - table [ref=e143]:
+      - rowgroup [ref=e144]:
+        - row "Nombre Ubicación Dispositivo Estado Última conexión Expira token Acciones" [ref=e145]:
+          - columnheader "Nombre" [ref=e146]
+          - columnheader "Ubicación" [ref=e147]
+          - columnheader "Dispositivo" [ref=e148]
+          - columnheader "Estado" [ref=e149]
+          - columnheader "Última conexión" [ref=e150]
+          - columnheader "Expira token" [ref=e151]
+          - columnheader "Acciones" [ref=e152]
+      - rowgroup [ref=e153]:
+        - row "Test Apple Theme 55322073… — Desconocido Activo Nunca 18/08/2026, 08:48 p. m. Desactivar Revocar" [ref=e154]:
+          - cell "Test Apple Theme 55322073…" [ref=e155]:
+            - generic [ref=e156]: Test Apple Theme
+            - generic [ref=e157]: 55322073…
+          - cell "—" [ref=e158]
+          - cell "Desconocido" [ref=e159]
+          - cell "Activo" [ref=e160]:
+            - generic [ref=e161]: Activo
+          - cell "Nunca" [ref=e162]
+          - cell "18/08/2026, 08:48 p. m." [ref=e163]
+          - cell "Desactivar Revocar" [ref=e164]:
+            - generic [ref=e165]:
+              - button "Desactivar" [ref=e166] [cursor=pointer]
+              - button "Revocar" [ref=e167] [cursor=pointer]
+        - row "jopsdjaosda f4c631a3… sdasdasdascasd PC Activo 20/05/2026, 07:12 p. m. 18/08/2026, 07:10 p. m. Desactivar Revocar" [ref=e168]:
+          - cell "jopsdjaosda f4c631a3…" [ref=e169]:
+            - generic [ref=e170]: jopsdjaosda
+            - generic [ref=e171]: f4c631a3…
+          - cell "sdasdasdascasd" [ref=e172]
+          - cell "PC" [ref=e173]
+          - cell "Activo" [ref=e174]:
+            - generic [ref=e175]: Activo
+          - cell "20/05/2026, 07:12 p. m." [ref=e176]
+          - cell "18/08/2026, 07:10 p. m." [ref=e177]
+          - cell "Desactivar Revocar" [ref=e178]:
+            - generic [ref=e179]:
+              - button "Desactivar" [ref=e180] [cursor=pointer]
+              - button "Revocar" [ref=e181] [cursor=pointer]
+        - row "REG-Test f745b703… — Desconocido Activo Nunca 21/05/2026, 02:49 p. m. Desactivar Revocar" [ref=e182]:
+          - cell "REG-Test f745b703…" [ref=e183]:
+            - generic [ref=e184]: REG-Test
+            - generic [ref=e185]: f745b703…
+          - cell "—" [ref=e186]
+          - cell "Desconocido" [ref=e187]
+          - cell "Activo" [ref=e188]:
+            - generic [ref=e189]: Activo
+          - cell "Nunca" [ref=e190]
+          - cell "21/05/2026, 02:49 p. m." [ref=e191]
+          - cell "Desactivar Revocar" [ref=e192]:
+            - generic [ref=e193]:
+              - button "Desactivar" [ref=e194] [cursor=pointer]
+              - button "Revocar" [ref=e195] [cursor=pointer]
+        - row "Recepción Demo 22222222… Lobby principal PC Activo 20/05/2026, 07:57 p. m. 16/08/2026, 01:16 p. m. Desactivar Revocar" [ref=e196]:
+          - cell "Recepción Demo 22222222…" [ref=e197]:
+            - generic [ref=e198]: Recepción Demo
+            - generic [ref=e199]: 22222222…
+          - cell "Lobby principal" [ref=e200]
+          - cell "PC" [ref=e201]
+          - cell "Activo" [ref=e202]:
+            - generic [ref=e203]: Activo
+          - cell "20/05/2026, 07:57 p. m." [ref=e204]
+          - cell "16/08/2026, 01:16 p. m." [ref=e205]
+          - cell "Desactivar Revocar" [ref=e206]:
+            - generic [ref=e207]:
+              - button "Desactivar" [ref=e208] [cursor=pointer]
+              - button "Revocar" [ref=e209] [cursor=pointer]

@@ -1,0 +1,45 @@
+- generic [ref=e88]:
+  - banner [ref=e89]:
+    - heading "Agendar cita — Confirmar" [level=1] [ref=e287]
+    - button "← Volver" [ref=e91] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - generic [ref=e288]:
+        - generic: ✓1
+      - generic [ref=e290]:
+        - generic: ✓2
+      - generic [ref=e292]:
+        - generic: ✓3
+      - generic [ref=e294]:
+        - generic: ✓4
+      - generic [ref=e297]: "5"
+    - generic [ref=e108]:
+      - paragraph [ref=e298]: "Revisa los datos antes de confirmar tu cita:"
+      - generic [ref=e299]:
+        - generic [ref=e300]:
+          - generic [ref=e301]: 🏥 Sede
+          - generic [ref=e302]: Odontología
+        - generic [ref=e303]:
+          - generic [ref=e304]: 📍 Dirección
+          - generic [ref=e305]: Carrera 9 24AN 21
+        - generic [ref=e306]:
+          - generic [ref=e307]: 👨‍⚕️ Profesional
+          - generic [ref=e308]: GERMAN ENRIQUE FERNANDEZ SILVA
+        - generic [ref=e309]:
+          - generic [ref=e310]: Especialidad
+          - generic [ref=e311]: Ortodoncia
+        - generic [ref=e312]:
+          - generic [ref=e313]: 📅 Fecha
+          - generic [ref=e314]: lunes, 1 de junio de 2026
+        - generic [ref=e315]:
+          - generic [ref=e316]: 🕐 Hora
+          - generic [ref=e317]: 14:30 – 15:00
+        - generic [ref=e318]:
+          - generic [ref=e319]: ⏱ Duración
+          - generic [ref=e320]: 30 minutos
+      - generic [ref=e321]:
+        - generic [ref=e322]: Motivo o notas (opcional)
+        - textbox "Motivo o notas (opcional)" [ref=e323]:
+          - /placeholder: "Ej: Dolor muela inferior izquierda"
+        - generic [ref=e324]: Máx 200 caracteres. Lo verá el profesional.
+      - button "Confirmar y agendar" [ref=e325] [cursor=pointer]

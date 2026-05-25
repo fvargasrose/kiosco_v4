@@ -1,0 +1,18 @@
+- generic [ref=e47]:
+  - banner [ref=e48]:
+    - heading "Código de verificación" [level=1] [ref=e49]
+    - button "← Cancelar" [ref=e50] [cursor=pointer]
+  - generic [ref=e52]:
+    - paragraph [ref=e53]:
+      - text: Te enviamos un código de 6 dígitos por SMS a
+      - strong [ref=e54]: +57 320 *** 39
+      - text: y por correo electrónico.
+    - paragraph [ref=e55]: El código expira en 4:59
+    - generic [ref=e56]:
+      - textbox [active] [ref=e57]
+      - textbox [ref=e58]
+      - textbox [ref=e59]
+      - textbox [ref=e60]
+      - textbox [ref=e61]
+      - textbox [ref=e62]
+    - button "Verificar" [disabled] [ref=e63]

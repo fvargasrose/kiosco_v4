@@ -1,0 +1,20 @@
+- generic [ref=e88]:
+  - banner [ref=e89]:
+    - heading "Agendar cita — Sede" [level=1] [ref=e90]
+    - button "← Volver" [ref=e91] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - generic [ref=e95]: "1"
+      - generic [ref=e98]: "2"
+      - generic [ref=e101]: "3"
+      - generic [ref=e104]: "4"
+      - generic [ref=e107]: "5"
+    - generic [ref=e108]:
+      - paragraph [ref=e109]: "Selecciona la sede donde quieres tu cita:"
+      - button "🏥 Odontología Carrera 9 24AN 21 +573143942094 ›" [ref=e111] [cursor=pointer]:
+        - generic [ref=e112]: 🏥
+        - generic [ref=e113]:
+          - generic [ref=e114]: Odontología
+          - generic [ref=e115]: Carrera 9 24AN 21
+          - generic [ref=e116]: "+573143942094"
+        - generic [ref=e117]: ›
