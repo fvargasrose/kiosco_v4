@@ -28,8 +28,7 @@ export function renderLoginOtp(container, params, navigate) {
       <div class="screen-body">
         <div class="login-form">
           <p class="subtitle">
-            Te enviamos un código de 6 dígitos por SMS a <strong>${escapeHtml(maskedPhone)}</strong>
-            y por correo electrónico.
+            Enviamos tu código al correo y al celular registrados (<strong>${escapeHtml(maskedPhone)}</strong>).
           </p>
           <p class="otp-meta">
             El código expira en <span id="countdown">${formatTime(expiresInSeconds)}</span>

@@ -23,18 +23,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { db } from '../lib/db.js';
-import { logger, maskCedula, maskPhone, maskEmail } from '../lib/logger.js';
+import { logger, maskPhone, maskEmail } from '../lib/logger.js';
 import { audit } from '../lib/audit.js';
 import { decrypt } from '../lib/crypto.js';
 import { dentalink } from '../lib/dentalink.js';
-import { getSmsSender } from '../lib/sms.js';
-import { getEmailSender } from '../lib/email.js';
+import { redis } from '../lib/redis.js';
+import { sendOtpDual } from '../lib/notifications.js';
 import {
   generateOtpCode,
   hashOtp,
   verifyOtp,
   generateSalt,
-  hashCedula,
 } from '../lib/otp.js';
 import {
   verifyKioskToken,
@@ -46,7 +45,6 @@ import { config } from '../lib/config.js';
 // ----- Schemas -----
 
 const RequestOtpBody = z.object({
-  cedula: z.string().regex(/^\d{6,12}$/, 'Cédula debe tener 6-12 dígitos'),
   phone: z
     .string()
     .regex(/^\+57[3]\d{9}$/, 'Celular debe ser +57XXXXXXXXXX (10 dígitos comenzando en 3)'),
@@ -84,30 +82,6 @@ interface OtpRow {
   dentalink_patient_name: string | null;
 }
 
-/**
- * Plantillas de SMS y email para el OTP.
- */
-function buildOtpMessages(code: string, firstName: string, ttlMinutes: number) {
-  const sms = `Hola ${firstName}, tu código DentalKiosco es: ${code}. Vence en ${ttlMinutes} min. No lo compartas.`;
-
-  const html = `
-    <div style="font-family: system-ui, sans-serif; max-width: 500px; margin: 0 auto;">
-      <h2 style="color: #0369a1;">Tu código de acceso</h2>
-      <p>Hola ${firstName},</p>
-      <p>Tu código de verificación para DentalKiosco es:</p>
-      <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px;
-                  background: #f1f5f9; padding: 16px; text-align: center;
-                  border-radius: 8px; margin: 16px 0;">${code}</div>
-      <p style="color: #64748b; font-size: 14px;">
-        Este código vence en ${ttlMinutes} minutos. Si no solicitaste este código, ignora este mensaje.
-      </p>
-    </div>
-  `;
-  const text = `Hola ${firstName}, tu código DentalKiosco es: ${code}. Vence en ${ttlMinutes} min.`;
-
-  return { sms, html, text };
-}
-
 // ----- Rutas -----
 
 export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -123,7 +97,7 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
         details: parsed.error.flatten(),
       });
     }
-    const { cedula, phone, policy_version, policy_hash } = parsed.data;
+    const { phone, policy_version, policy_hash } = parsed.data;
 
     // 2. Validar kiosk_token
     const kioskTokenStr = extractBearer(request.headers.authorization);
@@ -190,14 +164,13 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // 5. Registrar consentimiento Habeas Data ANTES de buscar al paciente.
-    const cedulaHash = hashCedula(cedula);
+    //    Sin cédula → patient_cedula_hash queda NULL (migración 012).
     await db.query(
       `INSERT INTO habeas_data_consents
         (kiosk_id, patient_cedula_hash, patient_phone, policy_version, policy_text_hash, ip_address, user_agent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
       [
         kioskId,
-        cedulaHash,
         phone,
         policy_version,
         policy_hash,
@@ -227,36 +200,26 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
-    logger.info(
-      { hasToken: !!dentalinkToken, tokenLen: dentalinkToken?.length ?? 0 },
-      'DEBUG decrypt result',
-    );
-
-    // 7. Lookup del paciente (servidor-side, sin descargar lista al cliente)
-    const patient = await dentalink.lookupPatientByCedula(cedula, dentalinkToken);
+    // 7. Lookup del paciente por celular (spike S1: warning + primero si hay duplicados)
+    const patient = await dentalink.lookupPatientByCelular(phone, dentalinkToken);
 
     const requestId = randomUUID();
     const expiresIn = config.OTP_TTL_MINUTES * 60;
 
-    // 8. Si paciente no existe O celular no coincide → respuesta indistinguible (anti-enumeración)
-    if (!patient || patient.celular !== phone) {
+    // 8. Si paciente no existe → respuesta indistinguible (anti-enumeración)
+    if (!patient) {
       await audit({
         actorType: 'system',
-        action: patient ? 'patient.otp.phone_mismatch' : 'patient.otp.unknown_patient',
-        resourceType: 'patient_cedula_hash',
-        resourceId: cedulaHash.substring(0, 16),
+        action: 'patient.otp.unknown_patient',
+        resourceType: 'patient_phone',
+        resourceId: maskPhone(phone),
         result: 'denied',
         ip: request.ip,
       });
 
       logger.info(
-        {
-          kiosk: kioskId,
-          cedula: maskCedula(cedula),
-          phone: maskPhone(phone),
-          patient_found: !!patient,
-        },
-        'OTP request: patient not matched (silent response)',
+        { kiosk: kioskId, phone: maskPhone(phone) },
+        'OTP request: patient not found (silent response)',
       );
 
       // Igualar timing con la rama feliz
@@ -280,15 +243,14 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
         (id, kiosk_id, patient_cedula_hash, patient_phone, patient_email,
          code_hash, channel, expires_at, request_ip, user_agent,
          dentalink_patient_id, dentalink_patient_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         requestId,
         kioskId,
-        cedulaHash,
         phone,
         patient.email ?? null,
         storedHash,
-        'both',
+        patient.email ? 'both' : 'sms',
         expiresAt,
         request.ip,
         request.headers['user-agent'] ?? null,
@@ -297,35 +259,32 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       ],
     );
 
-    // 10. Enviar SMS + Email en paralelo (fire-and-forget)
-    const firstName = patient.nombre.split(' ')[0] ?? 'paciente';
-    const msg = buildOtpMessages(code, firstName, config.OTP_TTL_MINUTES);
-
-    const sms = getSmsSender();
-    const email = getEmailSender();
-
-    const sendPromises: Promise<unknown>[] = [
-      sms.send(phone, msg.sms).catch((err: unknown) => {
-        logger.error({ err, to: maskPhone(phone) }, 'SMS send failed');
-      }),
-    ];
-
-    if (patient.email) {
-      sendPromises.push(
-        email
-          .send({
-            to: patient.email,
-            subject: 'Tu código DentalKiosco',
-            html: msg.html,
-            text: msg.text,
-          })
-          .catch((err: unknown) => {
-            logger.error({ err, to: maskEmail(patient.email!) }, 'Email send failed');
+    // 9b. Solo en NO-producción: guardar código en claro en Redis para el CLI dk:otp
+    if (config.NODE_ENV !== 'production') {
+      try {
+        await redis.set(
+          `otp:dev:${phone}`,
+          JSON.stringify({
+            code,
+            request_id: requestId,
+            expires_at: expiresAt.toISOString(),
           }),
-      );
+          expiresIn,
+        );
+      } catch (err) {
+        logger.warn({ err }, 'Failed to write dev OTP cache');
+      }
     }
 
-    void Promise.all(sendPromises);
+    // 10. Enviar SMS + Email en paralelo (fire-and-forget, allSettled interno)
+    const firstName = patient.nombre.split(' ')[0] ?? 'paciente';
+    void sendOtpDual({
+      phone,
+      email: patient.email ?? null,
+      code,
+      firstName,
+      ttlMinutes: config.OTP_TTL_MINUTES,
+    });
 
     await audit({
       actorType: 'kiosk',
@@ -345,7 +304,6 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       {
         kiosk: kioskId,
         request_id: requestId,
-        cedula: maskCedula(cedula),
         phone: maskPhone(phone),
         email: patient.email ? maskEmail(patient.email) : null,
       },
@@ -538,7 +496,7 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
         details: parsed.error.flatten(),
       });
     }
-    const { cedula, phone, policy_version, policy_hash } = parsed.data;
+    const { phone, policy_version, policy_hash } = parsed.data;
 
     // 2. Validar kiosk_token
     const kioskTokenStr = extractBearer(request.headers.authorization);
@@ -583,15 +541,13 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 5. Registrar consentimiento Habeas Data
-    const cedulaHash = hashCedula(cedula);
+    // 5. Registrar consentimiento Habeas Data (sin cédula → NULL, migración 012)
     await db.query(
       `INSERT INTO habeas_data_consents
         (kiosk_id, patient_cedula_hash, patient_phone, policy_version, policy_text_hash, ip_address, user_agent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
       [
         kioskId,
-        cedulaHash,
         phone,
         policy_version,
         policy_hash,
@@ -608,15 +564,15 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       clinicResult.rows[0]?.dentalink_token_encrypted ?? null,
     );
 
-    // 7. Buscar paciente en Dentalink
-    const patient = await dentalink.lookupPatientByCedula(cedula, dentalinkToken);
+    // 7. Buscar paciente en Dentalink por celular
+    const patient = await dentalink.lookupPatientByCelular(phone, dentalinkToken);
 
-    if (!patient || patient.celular !== phone) {
+    if (!patient) {
       await audit({
         actorType: 'system',
-        action: patient ? 'patient.direct.phone_mismatch' : 'patient.direct.unknown_patient',
-        resourceType: 'patient_cedula_hash',
-        resourceId: cedulaHash.substring(0, 16),
+        action: 'patient.direct.unknown_patient',
+        resourceType: 'patient_phone',
+        resourceId: maskPhone(phone),
         result: 'denied',
         ip: request.ip,
       });
@@ -659,7 +615,6 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
       {
         jti,
         dentalink_patient_id: patient.id,
-        cedula: maskCedula(cedula),
         phone: maskPhone(phone),
         kiosk: kioskId,
       },

@@ -14,7 +14,8 @@
     "migrate": "tsx src/migrate.ts up",
     "migrate:status": "tsx src/migrate.ts status",
     "migrate:verify": "tsx src/migrate.ts verify",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "dk:otp": "tsx src/scripts/get-otp.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

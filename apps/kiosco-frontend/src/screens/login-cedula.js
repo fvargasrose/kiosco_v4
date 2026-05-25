@@ -1,6 +1,7 @@
 /**
- * Pantalla login-cedula — captura cédula y celular.
- * Envía /auth/request-otp con consent + policy_version + policy_hash.
+ * Pantalla de identificación por teléfono.
+ * El paciente sólo escribe su celular; el backend lo busca en Dentalink.
+ * (Nombre de archivo conservado para no romper el router.)
  */
 
 import { api, ApiError } from '../api.js';
@@ -9,11 +10,9 @@ import { toast } from '../components/toast.js';
 
 export function renderLoginCedula(container, params, navigate) {
   const { policyVersion, policyHash } = params;
-  // Leído del bootstrap; true por defecto si no está definido (seguro).
   const otpRequired = params.otpRequired !== false;
 
   if (!policyVersion || !policyHash) {
-    // No deberíamos llegar aquí sin haber pasado por habeas-data
     navigate('habeas-data');
     return null;
   }
@@ -29,18 +28,10 @@ export function renderLoginCedula(container, params, navigate) {
       <div class="screen-body">
         <div class="login-form">
           <p class="subtitle">
-            Por favor ingresa tu cédula y celular registrados en la clínica.${otpRequired ? '' : ' No se requiere código de verificación.'}
+            Ingresa el celular registrado en la clínica.${otpRequired ? '' : ' No se requiere código de verificación.'}
           </p>
 
           <div id="form-error" class="form-error" style="display: none;"></div>
-
-          <div class="form-group">
-            <label for="cedula">Cédula de ciudadanía</label>
-            <input type="tel" id="cedula" inputmode="numeric" pattern="[0-9]*"
-                   autocomplete="off" placeholder="Solo números"
-                   maxlength="15">
-            <div class="form-help">Sin puntos ni espacios.</div>
-          </div>
 
           <div class="form-group">
             <label for="phone">Celular</label>
@@ -50,7 +41,7 @@ export function renderLoginCedula(container, params, navigate) {
                      autocomplete="off" placeholder="3001234567"
                      maxlength="10">
             </div>
-            <div class="form-help">10 dígitos, sin el +57.${otpRequired ? ' Te enviaremos un código.' : ''}</div>
+            <div class="form-help">10 dígitos, sin el +57.${otpRequired ? ' Te enviaremos un código por SMS y correo.' : ''}</div>
           </div>
 
           <button type="button" class="btn btn-primary btn-lg btn-full" id="submit-btn">
@@ -68,21 +59,15 @@ export function renderLoginCedula(container, params, navigate) {
     </div>
   `;
 
-  const cedulaInput = container.querySelector('#cedula');
   const phoneInput = container.querySelector('#phone');
   const submitBtn = container.querySelector('#submit-btn');
   const errorEl = container.querySelector('#form-error');
 
-  cedulaInput.focus();
+  phoneInput.focus();
 
-  // Solo permitir dígitos
-  const onlyDigits = (input) => {
-    input.addEventListener('input', () => {
-      input.value = input.value.replace(/\D/g, '');
-    });
-  };
-  onlyDigits(cedulaInput);
-  onlyDigits(phoneInput);
+  phoneInput.addEventListener('input', () => {
+    phoneInput.value = phoneInput.value.replace(/\D/g, '');
+  });
 
   const showError = (msg) => {
     errorEl.textContent = msg;
@@ -98,14 +83,8 @@ export function renderLoginCedula(container, params, navigate) {
     if (submitting) return;
     clearError();
 
-    const cedula = cedulaInput.value.trim();
     const phoneDigits = phoneInput.value.trim();
 
-    if (!/^\d{6,12}$/.test(cedula)) {
-      showError('Cédula inválida. Verifica que solo tenga números.');
-      cedulaInput.focus();
-      return;
-    }
     if (!/^3\d{9}$/.test(phoneDigits)) {
       showError('El celular debe iniciar con 3 y tener 10 dígitos.');
       phoneInput.focus();
@@ -119,7 +98,6 @@ export function renderLoginCedula(container, params, navigate) {
     try {
       if (otpRequired) {
         const result = await api.requestOtp({
-          cedula,
           phone: `+57${phoneDigits}`,
           policyVersion,
           policyHash,
@@ -131,7 +109,6 @@ export function renderLoginCedula(container, params, navigate) {
         });
       } else {
         const result = await api.loginDirect({
-          cedula,
           phone: `+57${phoneDigits}`,
           policyVersion,
           policyHash,
@@ -148,13 +125,13 @@ export function renderLoginCedula(container, params, navigate) {
         if (err.status === 429) {
           showError('Demasiados intentos. Espera unos minutos antes de volver a intentar.');
         } else if (err.status === 401) {
-          showError('Cédula o celular no coinciden con nuestros registros. Verifica los datos.');
+          showError('Si el número está registrado, recibirás un código en breve.');
         } else if (err.status === 400) {
-          showError('Datos inválidos. Verifica cédula y celular.');
+          showError('Celular inválido. Verifica el número.');
         } else if (err.status === 403) {
           showError('Este kiosco no está autorizado. Contacta a recepción.');
         } else {
-          showError('No pudimos verificar tus datos. Intenta de nuevo.');
+          showError('No pudimos procesar la solicitud. Intenta de nuevo.');
         }
       } else {
         toast('Error de conexión. Verifica la red del kiosco.', 'error');
@@ -164,11 +141,8 @@ export function renderLoginCedula(container, params, navigate) {
 
   submitBtn.addEventListener('click', handleSubmit);
 
-  // Enter en cualquier input → submit
-  [cedulaInput, phoneInput].forEach((el) => {
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') handleSubmit();
-    });
+  phoneInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleSubmit();
   });
 
   container.querySelector('#back-btn').addEventListener('click', () => navigate('standby'));

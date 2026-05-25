@@ -5,7 +5,7 @@
  */
 
 import { config } from './config.js';
-import { logger, maskCedula } from './logger.js';
+import { logger, maskCedula, maskPhone } from './logger.js';
 import { redis } from './redis.js';
 
 export interface DentalinkPatient {
@@ -547,6 +547,67 @@ class DentalinkClient {
         { query: { q: filter } },
       );
       const raw = data.data?.[0] ?? null;
+      const patient = raw ? { ...raw, celular: normalizeCelular(raw.celular) } : null;
+      await setCached(cacheKey, patient ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
+      return patient;
+    } catch (err) {
+      if (err instanceof DentalinkError && err.code === 'NOT_FOUND') {
+        await setCached(cacheKey, { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Busca un paciente por celular. Política de duplicados (spike S1):
+   * si Dentalink devuelve más de uno, log warning y retorna el primero.
+   */
+  async lookupPatientByCelular(
+    celular: string,
+    dentalinkToken: string | null,
+  ): Promise<DentalinkPatient | null> {
+    // Dentalink almacena sin +57; aceptamos ambos formatos en entrada.
+    const dlCelular = celular.startsWith('+57') ? celular.slice(3) : celular;
+    const cacheKey = `dl:patient:celular:${dlCelular}`;
+    const cached = await getCached<DentalinkPatient | { not_found: true }>(cacheKey);
+    if (cached) {
+      if ('not_found' in cached) return null;
+      return cached;
+    }
+
+    if (isMockMode(dentalinkToken)) {
+      const matches = MOCK_PATIENTS.filter((p) => {
+        const stored = p.celular.startsWith('+57') ? p.celular.slice(3) : p.celular;
+        return stored === dlCelular;
+      });
+      if (matches.length > 1) {
+        logger.warn(
+          { celular: maskPhone(celular), matchCount: matches.length },
+          'Multiple mock patients with same celular — taking first',
+        );
+      }
+      const found = matches[0] ?? null;
+      const patient = found ? { ...found, celular: normalizeCelular(found.celular) } : null;
+      await setCached(cacheKey, patient ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
+      return patient;
+    }
+
+    try {
+      const filter = JSON.stringify({ celular: { eq: dlCelular } });
+      const data = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
+        '/api/v1/pacientes',
+        dentalinkToken!,
+        { query: { q: filter } },
+      );
+      const list = data.data ?? [];
+      if (list.length > 1) {
+        logger.warn(
+          { celular: maskPhone(celular), matchCount: list.length },
+          'Multiple Dentalink patients with same celular — taking first',
+        );
+      }
+      const raw = list[0] ?? null;
       const patient = raw ? { ...raw, celular: normalizeCelular(raw.celular) } : null;
       await setCached(cacheKey, patient ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
       return patient;

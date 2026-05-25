@@ -21,6 +21,79 @@ import { getSmsSender } from './sms.js';
 import { dentalink } from './dentalink.js';
 import { decrypt } from './crypto.js';
 
+/**
+ * Envía un OTP por SMS y email en paralelo. Usa Promise.allSettled —
+ * si un canal falla, el otro sigue. Si falta un canal (ej. paciente sin
+ * email), se omite. Nunca lanza: solo loguea y reporta qué canal salió.
+ */
+export async function sendOtpDual(params: {
+  phone: string | null;
+  email: string | null;
+  code: string;
+  firstName: string;
+  ttlMinutes: number;
+}): Promise<{ smsSent: boolean; emailSent: boolean }> {
+  const { phone, email, code, firstName, ttlMinutes } = params;
+
+  const smsBody = `Hola ${firstName}, tu código DentalKiosco es: ${code}. Vence en ${ttlMinutes} min. No lo compartas.`;
+  const html = `
+    <div style="font-family: system-ui, sans-serif; max-width: 500px; margin: 0 auto;">
+      <h2 style="color: #0369a1;">Tu código de acceso</h2>
+      <p>Hola ${firstName},</p>
+      <p>Tu código de verificación para DentalKiosco es:</p>
+      <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px;
+                  background: #f1f5f9; padding: 16px; text-align: center;
+                  border-radius: 8px; margin: 16px 0;">${code}</div>
+      <p style="color: #64748b; font-size: 14px;">
+        Este código vence en ${ttlMinutes} minutos. Si no solicitaste este código, ignora este mensaje.
+      </p>
+    </div>
+  `;
+  const text = `Hola ${firstName}, tu código DentalKiosco es: ${code}. Vence en ${ttlMinutes} min.`;
+
+  const tasks: Array<Promise<{ channel: 'sms' | 'email'; ok: boolean }>> = [];
+
+  if (phone) {
+    tasks.push(
+      getSmsSender()
+        .send(phone, smsBody)
+        .then(() => ({ channel: 'sms' as const, ok: true }))
+        .catch((err: unknown) => {
+          logger.error({ err, to: maskPhone(phone) }, 'OTP SMS send failed');
+          return { channel: 'sms' as const, ok: false };
+        }),
+    );
+  }
+
+  if (email) {
+    tasks.push(
+      getEmailSender()
+        .send({
+          to: email,
+          subject: 'Tu código DentalKiosco',
+          html,
+          text,
+        })
+        .then(() => ({ channel: 'email' as const, ok: true }))
+        .catch((err: unknown) => {
+          logger.error({ err, to: maskEmail(email) }, 'OTP email send failed');
+          return { channel: 'email' as const, ok: false };
+        }),
+    );
+  }
+
+  const results = await Promise.allSettled(tasks);
+  let smsSent = false;
+  let emailSent = false;
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      if (r.value.channel === 'sms') smsSent = r.value.ok;
+      if (r.value.channel === 'email') emailSent = r.value.ok;
+    }
+  }
+  return { smsSent, emailSent };
+}
+
 export interface SendReceiptParams {
   reference: string; // wompi_reference
   /**
