@@ -1,23 +1,18 @@
 /**
  * =============================================================================
- * Tests integración: patient auth (OTP)
+ * Tests integración: patient auth (OTP) — login solo por teléfono
  * =============================================================================
  *
- * Estos tests usan:
- *   - Postgres real (con migraciones aplicadas)
- *   - Redis real (rate limiting)
- *   - Mocks de SMS y Email (capturan el OTP enviado)
- *   - Mock de Dentalink (paciente de prueba fijo)
- *
  * Validan:
- *   - Validación de input
+ *   - Validación de input (sólo phone, ya no cédula)
  *   - Aceptación de Habeas Data
- *   - Rate limiting
- *   - Anti-enumeración (respuesta indistinguible)
+ *   - Rate limiting por teléfono
+ *   - Anti-enumeración (respuesta indistinguible para phone no registrado)
+ *   - Envío dual SMS + email
  *   - Flujo end-to-end OTP request → verify → session
- *   - Que el OTP no aparezca en logs ni respuestas
- *   - Que el código sea single-use
- *   - Que la sesión paciente sea válida tras verify
+ *   - El OTP nunca se filtra en logs ni responses
+ *   - Sesión paciente válida tras verify
+ *   - CLI dk:otp rechaza ejecución en producción
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -28,12 +23,12 @@ import { db } from '../src/lib/db.js';
 import { signKioskToken, verifyPatientSession } from '../src/lib/jwt.js';
 import { setSmsSender, type SmsSender } from '../src/lib/sms.js';
 import { setEmailSender, type EmailSender } from '../src/lib/email.js';
+import { refuseInProduction } from '../src/scripts/get-otp.js';
 
 let app: FastifyInstance;
 let kioskToken: string;
 let revokedKioskToken: string;
 
-// Mock que captura el último mensaje enviado
 const captured: {
   sms: Array<{ to: string; body: string }>;
   email: Array<{ to: string; subject: string; text?: string }>;
@@ -53,39 +48,31 @@ const mockEmail: EmailSender = {
   },
 };
 
-// Constantes del paciente mock (definidas en dentalink.ts)
+// Paciente mock definido en dentalink.ts
 const MOCK_PATIENT = {
-  cedula: '1061700000',
   phone: '+573001234567',
   name: 'María Pérez',
   dentalink_id: '12345',
 };
 
-// Texto y hash de política Habeas Data
 const POLICY_TEXT = `Aviso de Privacidad - Test
 Versión test-v1.0
 Sus datos serán tratados según Ley 1581 de 2012.`;
 const POLICY_VERSION = 'test-v1.0';
 const POLICY_HASH = createHash('sha256').update(POLICY_TEXT).digest('hex');
 
-/**
- * Extrae el OTP del body del SMS capturado.
- * Formato esperado: "...código DentalKiosco es: XXXXXX. Vence..."
- */
 function extractOtp(body: string): string | null {
   const match = /es:\s*(\d{6})\./.exec(body);
   return match ? match[1]! : null;
 }
 
 beforeAll(async () => {
-  // Inyectar mocks ANTES de buildServer (los routes los leen vía getter)
   setSmsSender(mockSms);
   setEmailSender(mockEmail);
 
   app = await buildServer();
   await app.ready();
 
-  // Asegurar que existe la clínica con un policy_hash conocido
   const existing = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM clinic WHERE id = 1`);
   if (parseInt(existing.rows[0]!.count, 10) === 0) {
     await db.query(`
@@ -101,7 +88,6 @@ beforeAll(async () => {
     `, [POLICY_VERSION, POLICY_HASH]);
   }
 
-  // Asegurar kiosco activo
   await db.query(`DELETE FROM kiosks WHERE name LIKE 'TEST%'`);
   const kioskRes = await db.query<{ id: string }>(`
     INSERT INTO kiosks (name, token_hash, token_expires_at, is_active)
@@ -113,7 +99,6 @@ beforeAll(async () => {
   const k = await signKioskToken({ kioskId, kioskName: 'TEST Kiosco' });
   kioskToken = k.token;
 
-  // Crear también un kiosco revocado para tests
   const revokedRes = await db.query<{ id: string }>(`
     INSERT INTO kiosks (name, token_hash, token_expires_at, is_active, revoked_at)
     VALUES ('TEST Revocado', $1, now() + interval '1 day', false, now())
@@ -127,11 +112,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.query(`DELETE FROM otp_codes WHERE patient_cedula_hash = $1`, [
-    createHash('sha256').update(MOCK_PATIENT.cedula).digest('hex'),
-  ]);
-  await db.query(`DELETE FROM otp_codes WHERE patient_cedula_hash = $1`, [
-    createHash('sha256').update('9999999999').digest('hex'),
+  await db.query(`DELETE FROM otp_codes WHERE patient_phone IN ($1, $2)`, [
+    MOCK_PATIENT.phone,
+    '+573009999999',
   ]);
   await db.query(`DELETE FROM patient_sessions WHERE dentalink_patient_id = $1`, [
     MOCK_PATIENT.dentalink_id,
@@ -142,21 +125,18 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Limpiar buffers de captura
   captured.sms = [];
   captured.email = [];
-  // Limpiar rate limits para no contaminar
   await db.query(`DELETE FROM rate_limits WHERE bucket_key LIKE 'otp:%'`);
 });
 
 describe('POST /auth/request-otp - validación de input', () => {
-  it('rechaza body sin cedula', async () => {
+  it('rechaza body sin phone', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
         policy_hash: POLICY_HASH,
@@ -166,14 +146,13 @@ describe('POST /auth/request-otp - validación de input', () => {
     expect(res.json().error).toBe('INVALID_INPUT');
   });
 
-  it('rechaza cédula con formato inválido', async () => {
+  it('rechaza teléfono sin código país Colombia', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: 'abc123',
-        phone: MOCK_PATIENT.phone,
+        phone: '3001234567',
         consent: true,
         policy_version: POLICY_VERSION,
         policy_hash: POLICY_HASH,
@@ -182,14 +161,13 @@ describe('POST /auth/request-otp - validación de input', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('rechaza teléfono sin código país Colombia', async () => {
+  it('rechaza teléfono que no empieza en 3', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
-        phone: '3001234567', // sin +57
+        phone: '+576001234567',
         consent: true,
         policy_version: POLICY_VERSION,
         policy_hash: POLICY_HASH,
@@ -204,7 +182,6 @@ describe('POST /auth/request-otp - validación de input', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: false,
         policy_version: POLICY_VERSION,
@@ -220,7 +197,6 @@ describe('POST /auth/request-otp - validación de input', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -237,7 +213,6 @@ describe('POST /auth/request-otp - kiosk token', () => {
       method: 'POST',
       url: '/auth/request-otp',
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -254,7 +229,6 @@ describe('POST /auth/request-otp - kiosk token', () => {
       url: '/auth/request-otp',
       headers: { authorization: 'Bearer invalid.token.here' },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -271,7 +245,6 @@ describe('POST /auth/request-otp - kiosk token', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${revokedKioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -284,13 +257,12 @@ describe('POST /auth/request-otp - kiosk token', () => {
 });
 
 describe('POST /auth/request-otp - anti-enumeración', () => {
-  it('paciente que NO existe recibe la MISMA respuesta que uno que existe', async () => {
+  it('teléfono que NO existe recibe la MISMA respuesta que uno que existe', async () => {
     const resReal = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -305,7 +277,6 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: '9999999999',
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -315,14 +286,13 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
     expect(resFake.statusCode).toBe(200);
     const fakeBody = resFake.json();
 
-    // Mismo shape de respuesta
     expect(Object.keys(realBody).sort()).toEqual(Object.keys(fakeBody).sort());
     expect(typeof realBody.request_id).toBe('string');
     expect(typeof fakeBody.request_id).toBe('string');
     expect(realBody.expires_in_seconds).toBe(fakeBody.expires_in_seconds);
   });
 
-  it('cedula correcta pero phone no coincide → NO se envía OTP', async () => {
+  it('teléfono que NO existe → NO se envía ningún OTP', async () => {
     captured.sms = [];
     captured.email = [];
 
@@ -331,21 +301,19 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
-        phone: '+573009999999', // phone que no es del paciente
+        phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
         policy_hash: POLICY_HASH,
       },
     });
     expect(res.statusCode).toBe(200);
-    // Esperar fire-and-forget
     await new Promise((r) => setTimeout(r, 300));
     expect(captured.sms).toHaveLength(0);
     expect(captured.email).toHaveLength(0);
   });
 
-  it('paciente válido → envía SMS y Email', async () => {
+  it('paciente válido → envía SMS y Email en paralelo (OTP dual)', async () => {
     captured.sms = [];
     captured.email = [];
 
@@ -354,7 +322,6 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -363,13 +330,12 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
     });
     expect(res.statusCode).toBe(200);
 
-    // Esperar a que fire-and-forget complete
     await new Promise((r) => setTimeout(r, 300));
 
     expect(captured.sms).toHaveLength(1);
     expect(captured.sms[0]!.to).toBe(MOCK_PATIENT.phone);
-    expect(captured.sms[0]!.body).toMatch(/María/); // primer nombre
-    expect(captured.sms[0]!.body).toMatch(/\d{6}/); // OTP de 6 dígitos
+    expect(captured.sms[0]!.body).toMatch(/María/);
+    expect(captured.sms[0]!.body).toMatch(/\d{6}/);
 
     expect(captured.email).toHaveLength(1);
     expect(captured.email[0]!.to).toBe('maria.perez@demo.local');
@@ -390,7 +356,6 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -415,7 +380,7 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
     expect(after.rows[0]!.policy_text_hash).toBe(POLICY_HASH);
   });
 
-  it('registra consentimiento incluso si el paciente no existe (intento queda en auditoría)', async () => {
+  it('registra consentimiento incluso si el paciente no existe', async () => {
     const before = await db.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM habeas_data_consents
        WHERE patient_phone = '+573009999999'`,
@@ -427,7 +392,6 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: '9999999999',
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -445,14 +409,12 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
 
 describe('POST /auth/request-otp - rate limiting', () => {
   it('4to intento desde mismo phone es bloqueado (limit=3)', async () => {
-    // Hacer 3 intentos exitosos
     for (let i = 0; i < 3; i++) {
       const r = await app.inject({
         method: 'POST',
         url: '/auth/request-otp',
         headers: { authorization: `Bearer ${kioskToken}` },
         payload: {
-          cedula: MOCK_PATIENT.cedula,
           phone: MOCK_PATIENT.phone,
           consent: true,
           policy_version: POLICY_VERSION,
@@ -462,13 +424,11 @@ describe('POST /auth/request-otp - rate limiting', () => {
       expect(r.statusCode).toBe(200);
     }
 
-    // El 4to debe ser 429
     const r4 = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -485,13 +445,11 @@ describe('POST /auth/verify-otp - happy path', () => {
   it('flujo completo: request → SMS captura OTP → verify → session_token válido', async () => {
     captured.sms = [];
 
-    // 1. Request OTP
     const reqRes = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -501,13 +459,11 @@ describe('POST /auth/verify-otp - happy path', () => {
     expect(reqRes.statusCode).toBe(200);
     const { request_id } = reqRes.json();
 
-    // 2. Esperar SMS y extraer código
     await new Promise((r) => setTimeout(r, 300));
     expect(captured.sms).toHaveLength(1);
     const otpCode = extractOtp(captured.sms[0]!.body);
     expect(otpCode).toMatch(/^\d{6}$/);
 
-    // 3. Verify
     const verRes = await app.inject({
       method: 'POST',
       url: '/auth/verify-otp',
@@ -516,10 +472,9 @@ describe('POST /auth/verify-otp - happy path', () => {
     expect(verRes.statusCode).toBe(200);
 
     const body = verRes.json();
-    expect(body.session_token).toMatch(/^eyJ/); // JWT
+    expect(body.session_token).toMatch(/^eyJ/);
     expect(body.patient.name).toBe(MOCK_PATIENT.name);
 
-    // 4. JWT contiene el paciente correcto
     const claims = await verifyPatientSession(body.session_token);
     expect(claims.sub).toBe(MOCK_PATIENT.dentalink_id);
   });
@@ -536,7 +491,6 @@ describe('POST /auth/verify-otp - errores', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -579,7 +533,6 @@ describe('POST /auth/verify-otp - errores', () => {
   });
 
   it('OTP es single-use: segundo verify del mismo request_id falla', async () => {
-    // Primer uso OK
     const ok = await app.inject({
       method: 'POST',
       url: '/auth/verify-otp',
@@ -587,7 +540,6 @@ describe('POST /auth/verify-otp - errores', () => {
     });
     expect(ok.statusCode).toBe(200);
 
-    // Segundo uso del mismo code: rechazado
     const replay = await app.inject({
       method: 'POST',
       url: '/auth/verify-otp',
@@ -606,7 +558,6 @@ describe('POST /auth/verify-otp - errores', () => {
       });
     }
 
-    // El 6to (incluso con código correcto) debe ser 429
     const res = await app.inject({
       method: 'POST',
       url: '/auth/verify-otp',
@@ -617,7 +568,6 @@ describe('POST /auth/verify-otp - errores', () => {
   });
 
   it('OTP expirado es rechazado', async () => {
-    // Forzar expiración modificando expires_at en BD
     await db.query(
       `UPDATE otp_codes SET expires_at = now() - interval '1 minute' WHERE id = $1`,
       [recentRequestId],
@@ -640,7 +590,6 @@ describe('POST /auth/verify-otp - errores', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: '9999999999', // no existe
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -650,11 +599,9 @@ describe('POST /auth/verify-otp - errores', () => {
     expect(req.statusCode).toBe(200);
     const fakeRequestId = req.json().request_id;
 
-    // No se envió SMS
     await new Promise((r) => setTimeout(r, 300));
     expect(captured.sms).toHaveLength(0);
 
-    // Cualquier código de 6 dígitos es rechazado por request_id no encontrado
     const ver = await app.inject({
       method: 'POST',
       url: '/auth/verify-otp',
@@ -674,7 +621,6 @@ describe('OTP nunca aparece en logs ni en responses', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -683,8 +629,6 @@ describe('OTP nunca aparece en logs ni en responses', () => {
     });
 
     const bodyStr = JSON.stringify(res.json());
-    // El body NO debe contener un número de 6 dígitos
-    // (request_id es UUID, expires_in_seconds podría ser 300 pero NO es 6 dígitos)
     await new Promise((r) => setTimeout(r, 300));
     if (captured.sms.length > 0) {
       const realCode = extractOtp(captured.sms[0]!.body);
@@ -700,7 +644,6 @@ describe('OTP nunca aparece en logs ni en responses', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -727,13 +670,11 @@ describe('POST /auth/logout', () => {
   it('logout con token válido revoca la sesión', async () => {
     captured.sms = [];
 
-    // Auth completo para obtener session
     const r = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -752,7 +693,6 @@ describe('POST /auth/logout', () => {
     const { session_token } = verifyRes.json();
     const claims = await verifyPatientSession(session_token);
 
-    // Logout
     const logoutRes = await app.inject({
       method: 'POST',
       url: '/auth/logout',
@@ -760,7 +700,6 @@ describe('POST /auth/logout', () => {
     });
     expect(logoutRes.statusCode).toBe(200);
 
-    // Verificar en BD que está revocada
     const sessionRow = await db.query<{ revoked_at: Date | null }>(
       `SELECT revoked_at FROM patient_sessions WHERE jti = $1`,
       [claims.jti],
@@ -790,7 +729,6 @@ describe('Audit log', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -814,7 +752,6 @@ describe('Audit log', () => {
       url: '/auth/request-otp',
       headers: { authorization: `Bearer ${kioskToken}` },
       payload: {
-        cedula: MOCK_PATIENT.cedula,
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -825,7 +762,6 @@ describe('Audit log', () => {
     await new Promise((r) => setTimeout(r, 300));
     const code = extractOtp(captured.sms[0]!.body)!;
 
-    // Buscar entries recientes y verificar que el código no aparezca
     const r = await db.query<{ metadata: object | null }>(
       `SELECT metadata FROM audit_log
        WHERE action LIKE 'patient.otp%'
@@ -836,5 +772,19 @@ describe('Audit log', () => {
       const meta = JSON.stringify(row.metadata ?? {});
       expect(meta).not.toContain(code);
     }
+  });
+});
+
+describe('CLI dk:otp - guardia de producción', () => {
+  it('refuseInProduction("production") === true', () => {
+    expect(refuseInProduction('production')).toBe(true);
+  });
+
+  it('refuseInProduction("development") === false', () => {
+    expect(refuseInProduction('development')).toBe(false);
+  });
+
+  it('refuseInProduction(undefined) === false', () => {
+    expect(refuseInProduction(undefined)).toBe(false);
   });
 });

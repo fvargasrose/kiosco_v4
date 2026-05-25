@@ -81,11 +81,10 @@ class ApiClient {
   }
 
   // ===== Patient auth =====
-  async requestOtp({ cedula, phone, policyVersion, policyHash }) {
+  async requestOtp({ phone, policyVersion, policyHash }) {
     return this._fetch('/auth/request-otp', {
       method: 'POST',
       body: {
-        cedula,
         phone,
         consent: true,
         policy_version: policyVersion,
@@ -95,11 +94,10 @@ class ApiClient {
     });
   }
 
-  async loginDirect({ cedula, phone, policyVersion, policyHash }) {
+  async loginDirect({ phone, policyVersion, policyHash }) {
     const res = await this._fetch('/auth/login-direct', {
       method: 'POST',
       body: {
-        cedula,
         phone,
         consent: true,
         policy_version: policyVersion,
