@@ -266,7 +266,238 @@ export async function sendPaymentReceipt(
     logger.warn({ reference }, 'Could not send receipt by any channel');
   }
 
+  // === Notificación al administrador — independiente del flujo del paciente ===
+  // NUNCA debe lanzar — su try/catch garantiza que un fallo aquí no rompe
+  // la idempotencia del envío al paciente (receipt_sent_at ya está persistido).
+  try {
+    await sendAdminPaymentNotification({
+      tx,
+      profile,
+      reference,
+      amountFmt,
+      methodLabel,
+      dateFmt,
+      clinicName,
+      clinicNit,
+      dentalinkToken,
+    });
+  } catch (err) {
+    logger.error({ err, reference }, 'Admin payment notification failed');
+  }
+
   return { emailSent, smsSent, skipped: false };
+}
+
+// =============================================================================
+// Notificación al administrador
+// =============================================================================
+
+interface AdminNotificationParams {
+  tx: {
+    id: string;
+    amount_cop: string;
+    dentalink_patient_id: string;
+    dentalink_treatment_id: string | null;
+    wompi_transaction_id: string | null;
+    wompi_payment_method_type: string | null;
+  };
+  profile: { email?: string; celular?: string; nombre?: string } | null;
+  reference: string;
+  amountFmt: string;
+  methodLabel: string;
+  dateFmt: string;
+  clinicName: string;
+  clinicNit: string;
+  dentalinkToken: string | null;
+}
+
+async function sendAdminPaymentNotification(p: AdminNotificationParams): Promise<void> {
+  // ¿Hay email del admin configurado?
+  const cfgRes = await db.query<{ notification_email: string | null }>(
+    `SELECT notification_email FROM clinic WHERE id = 1`,
+  );
+  const adminEmail = cfgRes.rows[0]?.notification_email ?? null;
+  if (!adminEmail) return; // feature opcional — no es error
+
+  // Resolver datos del tratamiento (best-effort). Si Dentalink no responde,
+  // se envía el email con datos parciales — el admin sigue recibiendo la alerta.
+  let treatment: { name: string; saldoAntes: number; saldoDespues: number } | null = null;
+  if (p.tx.dentalink_treatment_id) {
+    try {
+      const treatments = await dentalink.getPatientTreatments(
+        p.tx.dentalink_patient_id,
+        p.dentalinkToken,
+      );
+      const t = treatments.find((x) => x.id === p.tx.dentalink_treatment_id);
+      if (t) {
+        const saldoDespues = t.saldo_pendiente;
+        const saldoAntes = saldoDespues + Number(p.tx.amount_cop);
+        treatment = { name: t.nombre, saldoAntes, saldoDespues };
+      }
+    } catch (err) {
+      logger.warn(
+        { err, reference: p.reference },
+        'Admin notification: could not fetch treatment details',
+      );
+    }
+  }
+
+  const subject = `Comprobante de pago — ${p.clinicName} — ${p.amountFmt}`;
+  const html = renderAdminNotificationHtml({
+    clinicName: p.clinicName,
+    clinicNit: p.clinicNit,
+    patientName: p.profile?.nombre ?? '(desconocido)',
+    patientEmailMasked: maskEmail(p.profile?.email) ?? '(sin email)',
+    patientPhoneMasked: maskPhone(p.profile?.celular) ?? '(sin teléfono)',
+    patientId: p.tx.dentalink_patient_id,
+    amountFmt: p.amountFmt,
+    reference: p.reference,
+    methodLabel: p.methodLabel,
+    dateFmt: p.dateFmt,
+    wompiTxId: p.tx.wompi_transaction_id ?? '',
+    treatmentId: p.tx.dentalink_treatment_id,
+    treatmentName: treatment?.name ?? null,
+    saldoAntes: treatment?.saldoAntes ?? null,
+    saldoDespues: treatment?.saldoDespues ?? null,
+  });
+  const text = renderAdminNotificationText({
+    clinicName: p.clinicName,
+    patientName: p.profile?.nombre ?? '(desconocido)',
+    patientEmailMasked: maskEmail(p.profile?.email) ?? '(sin email)',
+    patientPhoneMasked: maskPhone(p.profile?.celular) ?? '(sin teléfono)',
+    amountFmt: p.amountFmt,
+    reference: p.reference,
+    methodLabel: p.methodLabel,
+    dateFmt: p.dateFmt,
+    treatmentName: treatment?.name ?? null,
+    saldoAntes: treatment?.saldoAntes ?? null,
+    saldoDespues: treatment?.saldoDespues ?? null,
+  });
+
+  await getEmailSender().send({ to: adminEmail, subject, html, text });
+  logger.info({ reference: p.reference, to: maskEmail(adminEmail) }, 'Admin payment notification sent');
+}
+
+interface AdminHtmlData {
+  clinicName: string;
+  clinicNit: string;
+  patientName: string;
+  patientEmailMasked: string;
+  patientPhoneMasked: string;
+  patientId: string;
+  amountFmt: string;
+  reference: string;
+  methodLabel: string;
+  dateFmt: string;
+  wompiTxId: string;
+  treatmentId: string | null;
+  treatmentName: string | null;
+  saldoAntes: number | null;
+  saldoDespues: number | null;
+}
+
+function renderAdminNotificationHtml(d: AdminHtmlData): string {
+  const escape = (s: string) =>
+    String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const cop = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+
+  const treatmentRows = d.treatmentName
+    ? `
+      <tr><td style="padding:.5rem 0;color:#64748b;">Tratamiento:</td><td style="padding:.5rem 0;text-align:right;">${escape(d.treatmentName)}</td></tr>
+      ${d.saldoAntes !== null ? `<tr><td style="padding:.5rem 0;color:#64748b;">Saldo antes:</td><td style="padding:.5rem 0;text-align:right;">${escape(cop(d.saldoAntes))}</td></tr>` : ''}
+      ${d.saldoDespues !== null ? `<tr><td style="padding:.5rem 0;color:#64748b;">Saldo después:</td><td style="padding:.5rem 0;text-align:right;font-weight:600;">${escape(cop(d.saldoDespues))}</td></tr>` : ''}
+    `
+    : d.treatmentId
+      ? `<tr><td style="padding:.5rem 0;color:#64748b;">Tratamiento:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;font-size:.85rem;">${escape(d.treatmentId)} <em style="color:#94a3b8;">(detalle no disponible)</em></td></tr>`
+      : `<tr><td style="padding:.5rem 0;color:#64748b;">Tratamiento:</td><td style="padding:.5rem 0;text-align:right;color:#94a3b8;">Pago sin tratamiento asociado</td></tr>`;
+
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, sans-serif; color:#0f172a; line-height:1.5; max-width:640px; margin:0 auto; padding:2rem; background:#f8fafc;">
+  <div style="background:#0f766e; color:white; padding:1.5rem; border-radius:8px 8px 0 0;">
+    <div style="font-size:.75rem; opacity:.85; text-transform:uppercase; letter-spacing:.1em;">Notificación al administrador</div>
+    <h1 style="margin:.25rem 0 0; font-size:1.5rem;">Pago aprobado · ${escape(d.amountFmt)}</h1>
+    <div style="opacity:.85; margin-top:.5rem;">${escape(d.clinicName)}${d.clinicNit ? ' · NIT ' + escape(d.clinicNit) : ''}</div>
+  </div>
+
+  <div style="background:white; padding:1.75rem; border:1px solid #e2e8f0; border-top:0;">
+    <h2 style="color:#0f766e; margin-top:0; font-size:1.05rem; text-transform:uppercase; letter-spacing:.05em;">Paciente</h2>
+    <table style="width:100%; border-collapse:collapse;">
+      <tr><td style="padding:.5rem 0;color:#64748b;width:40%;">Nombre:</td><td style="padding:.5rem 0;text-align:right;">${escape(d.patientName)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">Email:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;font-size:.9rem;">${escape(d.patientEmailMasked)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">Teléfono:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;font-size:.9rem;">${escape(d.patientPhoneMasked)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">ID Dentalink:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;font-size:.85rem;">${escape(d.patientId)}</td></tr>
+    </table>
+  </div>
+
+  <div style="background:white; padding:1.75rem; border:1px solid #e2e8f0; border-top:0;">
+    <h2 style="color:#0f766e; margin-top:0; font-size:1.05rem; text-transform:uppercase; letter-spacing:.05em;">Pago</h2>
+    <table style="width:100%; border-collapse:collapse;">
+      <tr><td style="padding:.5rem 0;color:#64748b;width:40%;">Monto:</td><td style="padding:.5rem 0;text-align:right;font-weight:bold;font-size:1.15rem;">${escape(d.amountFmt)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">Método:</td><td style="padding:.5rem 0;text-align:right;">${escape(d.methodLabel)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">Referencia:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;">${escape(d.reference)}</td></tr>
+      <tr><td style="padding:.5rem 0;color:#64748b;">Fecha:</td><td style="padding:.5rem 0;text-align:right;">${escape(d.dateFmt)}</td></tr>
+      ${d.wompiTxId ? `<tr><td style="padding:.5rem 0;color:#64748b;">ID Wompi:</td><td style="padding:.5rem 0;text-align:right;font-family:monospace;font-size:.85rem;">${escape(d.wompiTxId)}</td></tr>` : ''}
+    </table>
+  </div>
+
+  <div style="background:white; padding:1.75rem; border:1px solid #e2e8f0; border-top:0; border-radius:0 0 8px 8px;">
+    <h2 style="color:#0f766e; margin-top:0; font-size:1.05rem; text-transform:uppercase; letter-spacing:.05em;">Tratamiento</h2>
+    <table style="width:100%; border-collapse:collapse;">
+      ${treatmentRows}
+    </table>
+  </div>
+
+  <div style="text-align:center; color:#94a3b8; font-size:.75rem; margin-top:1rem;">
+    Notificación automática · Datos del paciente parcialmente enmascarados por privacidad
+  </div>
+</body></html>`;
+}
+
+interface AdminTextData {
+  clinicName: string;
+  patientName: string;
+  patientEmailMasked: string;
+  patientPhoneMasked: string;
+  amountFmt: string;
+  reference: string;
+  methodLabel: string;
+  dateFmt: string;
+  treatmentName: string | null;
+  saldoAntes: number | null;
+  saldoDespues: number | null;
+}
+
+function renderAdminNotificationText(d: AdminTextData): string {
+  const cop = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+  const lines = [
+    `${d.clinicName} — Notificación al administrador`,
+    `Pago aprobado: ${d.amountFmt}`,
+    '',
+    'Paciente:',
+    `  Nombre:   ${d.patientName}`,
+    `  Email:    ${d.patientEmailMasked}`,
+    `  Teléfono: ${d.patientPhoneMasked}`,
+    '',
+    'Pago:',
+    `  Monto:      ${d.amountFmt}`,
+    `  Método:     ${d.methodLabel}`,
+    `  Referencia: ${d.reference}`,
+    `  Fecha:      ${d.dateFmt}`,
+  ];
+  if (d.treatmentName) {
+    lines.push('', 'Tratamiento:', `  Nombre:         ${d.treatmentName}`);
+    if (d.saldoAntes !== null)   lines.push(`  Saldo antes:    ${cop(d.saldoAntes)}`);
+    if (d.saldoDespues !== null) lines.push(`  Saldo después:  ${cop(d.saldoDespues)}`);
+  }
+  return lines.join('\n');
 }
 
 // =============================================================================

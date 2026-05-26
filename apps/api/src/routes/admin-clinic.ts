@@ -92,10 +92,11 @@ function detectImageMime(buf: Buffer): { mime: string; ext: 'png' | 'jpg' | 'web
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PatchClinicBody = z.object({
-  display_name:     z.string().min(1).max(100).optional(),
-  standby_mode:     z.enum(['mensaje', 'gif', 'video']).optional(),
-  standby_title:    z.string().max(120).optional().nullable(),
-  standby_subtitle: z.string().max(200).optional().nullable(),
+  display_name:       z.string().min(1).max(100).optional(),
+  standby_mode:       z.enum(['mensaje', 'gif', 'video']).optional(),
+  standby_title:      z.string().max(120).optional().nullable(),
+  standby_subtitle:   z.string().max(200).optional().nullable(),
+  notification_email: z.string().email().max(254).optional().nullable(),
 });
 
 // =============================================================================
@@ -151,11 +152,13 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
       logo_hash: string | null;
       logo_mime: string | null;
       logo_updated_at: string | null;
+      notification_email: string | null;
     }>(`
       SELECT display_name, legal_name, nit, address, city, phone, email,
              standby_mode, standby_title, standby_subtitle,
              standby_media_path, standby_media_hash, standby_media_updated_at,
-             logo_path, logo_hash, logo_mime, logo_updated_at
+             logo_path, logo_hash, logo_mime, logo_updated_at,
+             notification_email
       FROM clinic WHERE id = 1
     `);
     const c = r.rows[0];
@@ -186,6 +189,7 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
         mime:       hasLogo ? c.logo_mime : null,
         updated_at: hasLogo ? c.logo_updated_at : null,
       },
+      notification_email: c.notification_email,
     });
   });
 
@@ -198,7 +202,7 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
         details: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
       });
     }
-    const { display_name, standby_mode, standby_title, standby_subtitle } = parsed.data;
+    const { display_name, standby_mode, standby_title, standby_subtitle, notification_email } = parsed.data;
 
     // Si se cambia a "mensaje", borramos el media (ya no aplica)
     const clearMedia = standby_mode === 'mensaje';
@@ -207,10 +211,11 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
     const vals: unknown[] = [];
     let idx = 1;
 
-    if (display_name !== undefined)     { sets.push(`display_name = $${idx++}`);     vals.push(display_name); }
-    if (standby_mode !== undefined)     { sets.push(`standby_mode = $${idx++}`);     vals.push(standby_mode); }
-    if (standby_title !== undefined)    { sets.push(`standby_title = $${idx++}`);    vals.push(standby_title); }
-    if (standby_subtitle !== undefined) { sets.push(`standby_subtitle = $${idx++}`); vals.push(standby_subtitle); }
+    if (display_name !== undefined)     { sets.push(`display_name = $${idx++}`);       vals.push(display_name); }
+    if (standby_mode !== undefined)     { sets.push(`standby_mode = $${idx++}`);       vals.push(standby_mode); }
+    if (standby_title !== undefined)    { sets.push(`standby_title = $${idx++}`);      vals.push(standby_title); }
+    if (standby_subtitle !== undefined) { sets.push(`standby_subtitle = $${idx++}`);   vals.push(standby_subtitle); }
+    if (notification_email !== undefined) { sets.push(`notification_email = $${idx++}`); vals.push(notification_email); }
     if (clearMedia) {
       sets.push(`standby_media_path = NULL`);
       sets.push(`standby_media_hash = NULL`);

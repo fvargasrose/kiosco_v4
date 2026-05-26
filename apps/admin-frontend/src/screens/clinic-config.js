@@ -158,8 +158,18 @@ function render(container, clinic, procedures) {
         <label for="display_name">Nombre visible</label>
         <input type="text" id="display_name" class="form-control" value="${esc(clinic.display_name || '')}">
       </div>
+      <div class="form-group">
+        <label for="notification_email">Email para notificaciones de pago</label>
+        <input type="email" id="notification_email" class="form-control"
+               value="${esc(clinic.notification_email || '')}"
+               placeholder="admin@clinica.com">
+        <div class="form-help">
+          Si se configura, el administrador recibirá un correo por cada pago aprobado en Wompi.
+          Déjalo vacío para desactivar.
+        </div>
+      </div>
       <div id="clinic-save-alert"></div>
-      <button type="button" class="btn btn-primary" id="clinic-save-btn">Guardar nombre</button>
+      <button type="button" class="btn btn-primary" id="clinic-save-btn">Guardar cambios</button>
     </div>
 
     <!-- Procedimientos / Tratamientos -->
@@ -263,23 +273,34 @@ function render(container, clinic, procedures) {
     }
   });
 
-  // ── Save display_name ─────────────────────────────────────────────────────────
+  // ── Save display_name + notification_email ──────────────────────────────────
   const clinicSaveBtn = container.querySelector('#clinic-save-btn');
   clinicSaveBtn.addEventListener('click', async () => {
     const displayName = container.querySelector('#display_name').value.trim();
+    const notificationEmailRaw = container.querySelector('#notification_email').value.trim();
     const alertEl = container.querySelector('#clinic-save-alert');
+    alertEl.innerHTML = '';
+
+    // Validación cliente: si se ingresó algo, debe ser email válido
+    if (notificationEmailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notificationEmailRaw)) {
+      alertEl.innerHTML = '<div class="alert alert-error">El email de notificaciones no es válido.</div>';
+      return;
+    }
+
     clinicSaveBtn.disabled = true;
     clinicSaveBtn.textContent = 'Guardando...';
-    alertEl.innerHTML = '';
     try {
-      await api.patchClinic({ display_name: displayName });
-      alertEl.innerHTML = '<div class="alert alert-success">Nombre guardado.</div>';
+      await api.patchClinic({
+        display_name: displayName,
+        notification_email: notificationEmailRaw || null,
+      });
+      alertEl.innerHTML = '<div class="alert alert-success">Cambios guardados.</div>';
     } catch (err) {
       const msg = err instanceof ApiError ? (err.body?.message || `Error ${err.status}`) : 'Error de conexión.';
       alertEl.innerHTML = `<div class="alert alert-error">${esc(msg)}</div>`;
     } finally {
       clinicSaveBtn.disabled = false;
-      clinicSaveBtn.textContent = 'Guardar nombre';
+      clinicSaveBtn.textContent = 'Guardar cambios';
     }
   });
 
