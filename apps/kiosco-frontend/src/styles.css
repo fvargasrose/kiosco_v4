@@ -1295,7 +1295,7 @@ body {
 /* Grid de odontólogos con foto */
 .dentist-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1rem;
   max-width: 900px;
   margin: 0 auto;
@@ -1305,11 +1305,11 @@ body {
   background: white;
   border: 2px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 1.25rem 1rem;
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1rem;
   cursor: pointer;
   text-align: center;
   font-family: inherit;
@@ -1327,8 +1327,8 @@ body {
 }
 
 .dentist-card-photo-wrap {
-  width: 100px;
-  height: 100px;
+  width: 160px;
+  height: 160px;
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
@@ -1350,13 +1350,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
+  font-size: 3rem;
   font-weight: 700;
 }
 
 .dentist-card-name {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 1.2rem;
   line-height: 1.3;
 }
 
