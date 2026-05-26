@@ -5,12 +5,13 @@
  */
 
 import { api, ApiError } from '../api.js';
-import { setPatient } from '../state.js';
+import { setPatient, state } from '../state.js';
 import { toast } from '../components/toast.js';
 
 export function renderLoginCedula(container, params, navigate) {
   const { policyVersion, policyHash } = params;
   const otpRequired = params.otpRequired !== false;
+  const featureRegistro = state.config?.feature_registro === true;
 
   if (!policyVersion || !policyHash) {
     navigate('habeas-data');
@@ -48,12 +49,14 @@ export function renderLoginCedula(container, params, navigate) {
             ${otpRequired ? 'Enviar código' : 'Ingresar'}
           </button>
 
+          ${featureRegistro ? `
           <div class="register-link-row">
             <span>¿Eres paciente nuevo?</span>
             <button type="button" class="link-btn-inline" id="register-btn">
               Regístrate aquí →
             </button>
           </div>
+          ` : '<!-- DESHABILITADO — FEATURE_REGISTRO=false -->'}
         </div>
       </div>
     </div>
@@ -147,9 +150,12 @@ export function renderLoginCedula(container, params, navigate) {
 
   container.querySelector('#back-btn').addEventListener('click', () => navigate('standby'));
 
-  container.querySelector('#register-btn').addEventListener('click', () => {
-    navigate('register', { policyVersion, policyHash });
-  });
+  // DESHABILITADO — FEATURE_REGISTRO. El listener solo se monta si el botón existe.
+  if (featureRegistro) {
+    container.querySelector('#register-btn').addEventListener('click', () => {
+      navigate('register', { policyVersion, policyHash });
+    });
+  }
 
   return null;
 }

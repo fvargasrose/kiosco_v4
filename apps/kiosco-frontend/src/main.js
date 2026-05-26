@@ -49,7 +49,7 @@ registerScreen('treatments', renderTreatments);
 registerScreen('profile', renderProfile);
 registerScreen('payment', renderPayment);
 registerScreen('booking', renderBooking);
-registerScreen('register', renderRegister);
+// registerScreen('register', ...) se hace condicionalmente en bootstrap() según FEATURE_REGISTRO.
 
 function activateAppleTheme() {
   // Inter + Tabler Icons desde CDN (sin npm — solo 2 <link>)
@@ -123,6 +123,9 @@ async function bootstrap() {
   try {
     const config = await api.bootstrap();
     setConfig(config);
+    if (config.feature_registro) {
+      registerScreen('register', renderRegister);
+    }
     if (config.theme === 'apple') activateAppleTheme();
     navigate('standby');
   } catch (err) {

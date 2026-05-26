@@ -172,6 +172,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
         video_sound: clinic.standby_video_sound,
       },
       otp_required: config.OTP_REQUIRED,
+      feature_registro: config.FEATURE_REGISTRO,
       theme: config.KIOSK_THEME,
       server_time: new Date().toISOString(),
     });

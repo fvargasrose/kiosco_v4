@@ -103,6 +103,11 @@ const ConfigSchema = z.object({
   // true  = flujo normal: se envía código por SMS/email y el paciente lo verifica.
   OTP_REQUIRED: boolEnv(true),
 
+  // -------- Feature flags UI --------
+  // false = el botón "Regístrate aquí" del login y la pantalla register se ocultan.
+  //         El endpoint POST /kiosk/register sigue respondiendo (no se desmonta).
+  FEATURE_REGISTRO: boolEnv(false),
+
   // -------- Tema visual del kiosco --------
   KIOSK_THEME: z.enum(['apple', 'default']).default('apple'),
 
