@@ -101,6 +101,7 @@ const CACHE_TTL_TREATMENTS = 60;
 const CACHE_TTL_DENTISTS = 300;
 const CACHE_TTL_SUCURSALES = 600; // 10 min — cambia poco
 const CACHE_TTL_SLOTS = 60; // 1 min — cambia constantemente
+const CACHE_TTL_ESTADOS = 86_400; // 24h — los estados de citas cambian raramente
 const REQUEST_TIMEOUT_MS = 10_000;
 
 // Dentalink devuelve celular sin prefijo país (ej: "3206505239").
@@ -769,11 +770,51 @@ class DentalinkClient {
   }
 
   /**
+   * Obtiene el `id_estado` de "Cancelada" para esta clínica.
+   *
+   * Los IDs de estado de Dentalink son por clínica — NO son universales. En la
+   * instalación validada empíricamente:
+   *   - id_estado=3 → "Confirmado por teléfono" (NO cancela)
+   *   - id_estado=8 → "Cancelada" (correcto)
+   *
+   * Resolvemos el ID en runtime consultando /api/v1/citas/estados y buscando
+   * por nombre (regex `cancel|anula` case-insensitive). Cacheamos 24h en Redis.
+   */
+  async getCancelEstadoId(dentalinkToken: string): Promise<number> {
+    const cacheKey = 'dl:estados:cancel_id';
+    const cached = await getCached<{ id: number }>(cacheKey);
+    if (cached?.id) return cached.id;
+
+    const data = await dentalinkRequest<{
+      data?: Array<{ id: number; nombre: string }>;
+    }>('/api/v1/citas/estados', dentalinkToken);
+
+    const estados = data.data ?? [];
+    const match = estados.find((e) => /cancel|anula/i.test(e.nombre ?? ''));
+    if (!match) {
+      logger.error(
+        { estados },
+        'No se encontró un estado de cancelación en Dentalink (regex cancel|anula)',
+      );
+      throw new DentalinkError(
+        'No se pudo determinar el id_estado de cancelación en Dentalink',
+        'UPSTREAM_ERROR',
+      );
+    }
+
+    await setCached(cacheKey, { id: match.id }, CACHE_TTL_ESTADOS);
+    logger.info({ id: match.id, nombre: match.nombre }, 'Dentalink cancel estado resolved');
+    return match.id;
+  }
+
+  /**
    * Cancela una cita en Dentalink.
    *
    * - En mock mode: muta MOCK_APPOINTMENTS para que reflejos posteriores
    *   muestren la cita como 'Cancelada'.
    * - En real mode: PUT /api/v1/citas/:id con `{ id_estado: <id-cancelada> }`.
+   *   El id_estado se descubre dinámicamente (varía por clínica) — ver
+   *   `getCancelEstadoId`.
    *
    * Después de cancelar, invalida la caché de citas del paciente.
    *
@@ -809,14 +850,14 @@ class DentalinkClient {
       return MOCK_APPOINTMENTS[idx]!;
     }
 
-    // Dentalink: id_estado=3 suele ser 'Cancelada' (varía por instalación; configurable más adelante)
+    const cancelEstadoId = await this.getCancelEstadoId(dentalinkToken!);
     const data = await dentalinkRequest<{ data?: DentalinkAppointment }>(
       `/api/v1/citas/${encodeURIComponent(appointmentId)}`,
       dentalinkToken!,
       {
         method: 'PUT',
         body: {
-          id_estado: 3,
+          id_estado: cancelEstadoId,
         },
       },
     );
