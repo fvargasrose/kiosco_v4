@@ -107,13 +107,14 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       standby_mode: string;
       standby_title: string | null;
       standby_subtitle: string | null;
+      standby_video_sound: boolean;
     }>(`
       SELECT display_name, logo_path, logo_hash,
              habeas_data_policy_text, habeas_data_policy_version, habeas_data_policy_hash,
              faq,
              whatsapp_number, whatsapp_welcome_message,
              duracion_cita_minutos,
-             standby_mode, standby_title, standby_subtitle
+             standby_mode, standby_title, standby_subtitle, standby_video_sound
       FROM clinic WHERE id = 1
     `);
 
@@ -165,9 +166,10 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
         : null,
       duracion_cita_minutos: clinic.duracion_cita_minutos,
       standby: {
-        mode:     clinic.standby_mode,
-        title:    clinic.standby_title ?? clinic.display_name,
-        subtitle: clinic.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
+        mode:        clinic.standby_mode,
+        title:       clinic.standby_title ?? clinic.display_name,
+        subtitle:    clinic.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
+        video_sound: clinic.standby_video_sound,
       },
       otp_required: config.OTP_REQUIRED,
       theme: config.KIOSK_THEME,
@@ -187,10 +189,12 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       standby_media_path: string | null;
       standby_media_hash: string | null;
       standby_media_updated_at: string | null;
+      standby_video_sound: boolean;
       display_name: string;
     }>(`
       SELECT standby_mode, standby_title, standby_subtitle,
              standby_media_path, standby_media_hash, standby_media_updated_at,
+             standby_video_sound,
              display_name
       FROM clinic WHERE id = 1
     `);
@@ -201,12 +205,13 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
     const ext = c.standby_media_path ? path.extname(c.standby_media_path).slice(1) : null;
 
     return reply.send({
-      mode:       c.standby_mode,
-      title:      c.standby_title ?? c.display_name,
-      subtitle:   c.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
-      media_hash: hasFile ? c.standby_media_hash : null,
-      media_ext:  hasFile ? ext : null,
-      media_url:  hasFile ? '/kiosk/standby/media' : null,
+      mode:        c.standby_mode,
+      title:       c.standby_title ?? c.display_name,
+      subtitle:    c.standby_subtitle ?? 'Bienvenido a nuestro autoservicio',
+      video_sound: c.standby_video_sound,
+      media_hash:  hasFile ? c.standby_media_hash : null,
+      media_ext:   hasFile ? ext : null,
+      media_url:   hasFile ? '/kiosk/standby/media' : null,
     });
   });
 

@@ -90,11 +90,12 @@ async function syncStandby(container, navigate, initMode, initTitle, initSubtitl
 
   if (!isCurrentScreen(container)) return;
 
-  const mediaEl = blobUrl ? buildMediaEl(mode, blobUrl) : null;
+  const videoSound = cfg.video_sound === true;
+  const mediaEl = blobUrl ? buildMediaEl(mode, blobUrl, { videoSound }) : null;
   renderFrame(container, { mode: mediaEl ? mode : 'mensaje', title, subtitle, mediaEl }, navigate);
 }
 
-function buildMediaEl(mode, src) {
+function buildMediaEl(mode, src, opts = {}) {
   if (mode === 'gif') {
     const img = document.createElement('img');
     img.src = src;
@@ -107,9 +108,23 @@ function buildMediaEl(mode, src) {
   vid.src = src;
   vid.autoplay = true;
   vid.loop = true;
-  vid.muted = true;
+  const wantsSound = !!opts.videoSound;
+  vid.muted = !wantsSound;
+  if (wantsSound) vid.volume = 1.0;
   vid.playsInline = true;
   vid.className = 'standby-media standby-video';
+  // Fallback: si autoplay con sonido es bloqueado por el navegador, reintentar muted.
+  if (wantsSound) {
+    vid.addEventListener('loadedmetadata', () => {
+      const p = vid.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => {
+          vid.muted = true;
+          vid.play().catch(() => { /* silenciar — el frame ya se montó */ });
+        });
+      }
+    }, { once: true });
+  }
   return vid;
 }
 

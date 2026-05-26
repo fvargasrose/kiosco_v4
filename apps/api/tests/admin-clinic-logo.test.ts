@@ -337,3 +337,56 @@ describe('GET /admin/clinic — campo logo', () => {
     expect(logo.updated_at).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('GET/PATCH /admin/clinic — standby.video_sound', () => {
+  beforeEach(async () => {
+    // Reset al default antes de cada caso para no arrastrar estado.
+    await db.query(`UPDATE clinic SET standby_video_sound = false WHERE id = 1`);
+  });
+
+  it('GET devuelve standby.video_sound=false por defecto', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/clinic',
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().standby.video_sound).toBe(false);
+  });
+
+  it('PATCH persiste standby_video_sound=true y GET lo refleja', async () => {
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/clinic',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ standby_video_sound: true }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().ok).toBe(true);
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/admin/clinic',
+      headers: auth(),
+    });
+    expect(getRes.json().standby.video_sound).toBe(true);
+
+    const r = await db.query<{ standby_video_sound: boolean }>(
+      `SELECT standby_video_sound FROM clinic WHERE id = 1`,
+    );
+    expect(r.rows[0]?.standby_video_sound).toBe(true);
+  });
+
+  it('PATCH rechaza standby_video_sound no booleano', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/admin/clinic',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ standby_video_sound: 'yes' }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('BAD_REQUEST');
+  });
+});

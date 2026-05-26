@@ -213,6 +213,26 @@ dk-redis     running (healthy)
 3. **Copiar el token** que aparece (solo se muestra una vez)
 4. En la tablet del kiosco, abrir: `https://kiosco.tuClinica.com/?kiosk_token=<token>`
 
+### Standby con video y sonido (Chromium kiosk)
+
+El panel admin permite activar "Video con sonido" en la pantalla de standby
+(Configuración → Pantalla de espera → modo Video). Para que el navegador del
+kiosco reproduzca audio sin requerir un toque del usuario, **Chromium debe
+lanzarse con la política de autoplay relajada**:
+
+```bash
+chromium-browser \
+  --kiosk \
+  --autoplay-policy=no-user-gesture-required \
+  https://kiosco.tuClinica.com/?kiosk_token=<token>
+```
+
+Notas:
+- **No** pasar `--mute-audio`; anula el toggle.
+- Si la flag no está presente, el kiosco aplica un fallback seguro: vuelve a
+  silenciar el video automáticamente en lugar de romper la pantalla.
+- Default del toggle en BD: `false` (sin sonido). Audio sorpresa = mala UX.
+
 ---
 
 ## 7. Activar / desactivar OTP en producción

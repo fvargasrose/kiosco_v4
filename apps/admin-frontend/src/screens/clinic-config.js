@@ -112,6 +112,17 @@ function render(container, clinic, procedures) {
 
       <!-- Zona de media (GIF / video) -->
       <div id="media-section" style="${mode === 'mensaje' ? 'display:none' : ''}">
+        <div class="form-group" id="video-sound-group" style="${mode === 'video' ? '' : 'display:none'}">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+            <input type="checkbox" id="standby_video_sound" ${sb.video_sound ? 'checked' : ''}>
+            Reproducir video con sonido
+          </label>
+          <div class="form-help">
+            Por defecto el video se reproduce en silencio. Activa esta opción solo si el contenido lo requiere.
+            El navegador del kiosco debe permitir autoplay con audio (ver guía de producción).
+          </div>
+        </div>
+
         <div class="form-group">
           <label id="media-label">${mode === 'gif' ? 'Archivo GIF animado' : 'Archivo de video (MP4 o WebM)'}</label>
 
@@ -200,6 +211,8 @@ function render(container, clinic, procedures) {
       card.classList.toggle('selected', card.querySelector('input').value === newMode);
     });
     mediaSection.style.display = newMode === 'mensaje' ? 'none' : '';
+    const soundGroup = container.querySelector('#video-sound-group');
+    if (soundGroup) soundGroup.style.display = newMode === 'video' ? '' : 'none';
     const label = container.querySelector('#media-label');
     if (label) label.textContent = newMode === 'gif' ? 'Archivo GIF animado' : 'Archivo de video (MP4 o WebM)';
     const hint = container.querySelector('#drop-hint');
@@ -253,6 +266,7 @@ function render(container, clinic, procedures) {
     const newMode = container.querySelector('input[name=standby_mode]:checked')?.value || 'mensaje';
     const title = container.querySelector('#standby_title').value.trim();
     const subtitle = container.querySelector('#standby_subtitle').value.trim();
+    const videoSound = !!container.querySelector('#standby_video_sound')?.checked;
     const alertEl = container.querySelector('#save-alert');
     saveBtn.disabled = true;
     saveBtn.textContent = 'Guardando...';
@@ -262,6 +276,7 @@ function render(container, clinic, procedures) {
         standby_mode: newMode,
         standby_title: title || null,
         standby_subtitle: subtitle || null,
+        standby_video_sound: videoSound,
       });
       alertEl.innerHTML = '<div class="alert alert-success">Configuración guardada.</div>';
     } catch (err) {
