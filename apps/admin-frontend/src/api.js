@@ -91,6 +91,28 @@ class AdminApiClient {
     return this._fetch('/admin/clinic/standby-media', { method: 'DELETE' });
   }
 
+  // ── Procedimientos / Tratamientos ─────────────────────────────────────────
+  async getProcedures() {
+    return this._fetch('/admin/procedures');
+  }
+
+  async createProcedure(data) {
+    return this._fetch('/admin/procedures', { method: 'POST', body: data });
+  }
+
+  async updateProcedure(id, data) {
+    return this._fetch(`/admin/procedures/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async deleteProcedure(id) {
+    return this._fetch(`/admin/procedures/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ── Dentists ──────────────────────────────────────────────────────────────
   async getDentists() {
     return this._fetch('/admin/dentists');

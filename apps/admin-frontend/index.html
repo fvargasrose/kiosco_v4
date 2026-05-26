@@ -90,6 +90,21 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: 3rem; color: var(--muted); }
 
+    /* Table genérica */
+    .table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+    .table th, .table td { padding: .625rem .75rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .table th { font-weight: 600; color: var(--muted); font-size: .8125rem; text-transform: uppercase; letter-spacing: .025em; }
+    .table tr:last-child td { border-bottom: none; }
+
+    /* Botón pequeño (acciones en tablas) */
+    .btn-sm { padding: .25rem .625rem; font-size: .8125rem; background: var(--border); color: var(--text); margin-left: .25rem; }
+    .btn-sm:hover:not(:disabled) { opacity: .8; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .modal-card { background: var(--surface); border-radius: var(--radius); padding: 1.5rem; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+    .modal-title { font-size: 1.125rem; font-weight: 700; margin-bottom: 1rem; }
+
     /* Dentist admin grid */
     .dentist-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
     .dentist-admin-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display: flex; flex-direction: column; gap: .75rem; }

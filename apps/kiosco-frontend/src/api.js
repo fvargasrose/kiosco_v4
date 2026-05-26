@@ -220,17 +220,27 @@ class ApiClient {
     return res.blob();
   }
 
-  async createBookingAppointment({ dentistId, branchId, fecha, horaInicio, horaFin, notas }) {
+  async createBookingAppointment({
+    dentistId,
+    branchId,
+    fecha,
+    horaInicio,
+    horaFin,
+    notas,
+    treatmentName,
+  }) {
+    const body = {
+      dentist_id: dentistId,
+      branch_id: branchId,
+      fecha,
+      hora_inicio: horaInicio,
+      hora_fin: horaFin,
+    };
+    if (notas) body.notas = notas;
+    if (treatmentName) body.treatment_name = treatmentName;
     return this._fetch('/me/booking/appointments', {
       method: 'POST',
-      body: {
-        dentist_id: dentistId,
-        branch_id: branchId,
-        fecha,
-        hora_inicio: horaInicio,
-        hora_fin: horaFin,
-        notas,
-      },
+      body,
       _usePatient: true,
     });
   }

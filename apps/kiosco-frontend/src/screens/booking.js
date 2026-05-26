@@ -25,7 +25,7 @@ import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 
-const STEPS = ['branch', 'dentist', 'date', 'slot', 'confirm'];
+const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
 const DEFAULT_SEARCH_DAYS = 14;
 const MAX_FUTURE_DAYS = 90;
 
@@ -38,6 +38,7 @@ export function renderBooking(container, params, navigate) {
   const selection = {
     branch: null, // { id, nombre, direccion?, telefono?, horario? }
     dentist: null, // { id, nombre, apellido?, especialidad? }
+    treatment: null, // { id, name, duration_minutes, description? }
     date: null, // 'YYYY-MM-DD'
     slot: null, // { hora_inicio, hora_fin, duracion_minutos, ... }
     notas: '',
@@ -105,6 +106,7 @@ export function renderBooking(container, params, navigate) {
 function clearForwardSelections(selection, fromStep) {
   const idx = STEPS.indexOf(fromStep);
   if (idx <= STEPS.indexOf('dentist') - 1) selection.dentist = null;
+  if (idx <= STEPS.indexOf('treatment') - 1) selection.treatment = null;
   if (idx <= STEPS.indexOf('date') - 1) selection.date = null;
   if (idx <= STEPS.indexOf('slot') - 1) selection.slot = null;
   if (idx <= STEPS.indexOf('confirm') - 1) selection.notas = '';
@@ -114,6 +116,7 @@ function updateTitle(el, step, selection) {
   const titles = {
     branch: 'Agendar cita — Sede',
     dentist: 'Agendar cita — Dentista',
+    treatment: 'Agendar cita — Tratamiento',
     date: 'Agendar cita — Fecha',
     slot: 'Agendar cita — Hora',
     confirm: 'Agendar cita — Confirmar',
@@ -140,6 +143,8 @@ function renderStep(container, step, selection, actions) {
       return renderBranchStep(container, selection, actions);
     case 'dentist':
       return renderDentistStep(container, selection, actions);
+    case 'treatment':
+      return renderTreatmentStep(container, selection, actions);
     case 'date':
       return renderDateStep(container, selection, actions);
     case 'slot':
@@ -226,12 +231,62 @@ async function renderDentistStep(container, selection, { next }) {
       card.addEventListener('click', () => {
         const id = card.dataset.id;
         selection.dentist = dentists.find((d) => d.id === id);
-        next('date');
+        next('treatment');
       });
     });
   } catch (err) {
     renderStepError(container, err);
   }
+}
+
+// ----- 3: Tratamiento -----
+
+function renderTreatmentStep(container, selection, { next }) {
+  if (!selection.dentist) return next('branch');
+
+  const procedures = state.config?.procedures ?? [];
+
+  // Fallback: si no hay procedimientos configurados, ofrecer "Consulta general"
+  // con la duración por defecto de la clínica. NO bloquear el flujo.
+  const treatments =
+    procedures.length > 0
+      ? procedures
+      : [
+          {
+            id: '__default__',
+            name: 'Consulta general',
+            duration_minutes: state.config?.duracion_cita_minutos ?? 30,
+          },
+        ];
+
+  container.innerHTML = `
+    <p class="subtitle">
+      <strong>${escapeHtml(fullName(selection.dentist))}</strong> ·
+      Selecciona el tipo de consulta o tratamiento:
+    </p>
+    <div class="treatment-grid">
+      ${treatments.map(treatmentCardHtml).join('')}
+    </div>
+  `;
+
+  container.querySelectorAll('.treatment-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const id = card.dataset.id;
+      selection.treatment = treatments.find((t) => String(t.id) === id);
+      next('date');
+    });
+  });
+}
+
+function treatmentCardHtml(t) {
+  const description = t.description ? `<div class="treatment-card-desc">${escapeHtml(t.description)}</div>` : '';
+  return `
+    <button type="button" class="treatment-card" data-id="${escapeHtml(String(t.id))}">
+      <div class="treatment-card-name">${escapeHtml(t.name)}</div>
+      <div class="treatment-card-duration">${t.duration_minutes} min</div>
+      ${description}
+    </button>
+  `;
 }
 
 function dentistCardHtml(d) {
@@ -258,10 +313,11 @@ function dentistCardHtml(d) {
   `;
 }
 
-// ----- 3: Fecha -----
+// ----- 4: Fecha -----
 
 function renderDateStep(container, selection, { next }) {
   if (!selection.dentist) return next('branch');
+  if (!selection.treatment) return next('treatment');
 
   // Generamos 14 días al frente (saltando domingos por simplicidad — el server
   // de todas formas filtra por disponibilidad real)
@@ -294,16 +350,18 @@ function renderDateStep(container, selection, { next }) {
   });
 }
 
-// ----- 4: Slot -----
+// ----- 5: Slot -----
 
 async function renderSlotStep(container, selection, { next }) {
   if (!selection.date) return next('date');
+  if (!selection.treatment) return next('treatment');
 
   const formattedDate = formatLongDate(selection.date);
   container.innerHTML = `
     <p class="subtitle">
       <strong>${escapeHtml(formattedDate)}</strong> ·
-      Horarios disponibles con ${escapeHtml(fullName(selection.dentist))}:
+      Horarios disponibles con ${escapeHtml(fullName(selection.dentist))}
+      (${selection.treatment.duration_minutes} min):
     </p>
     <div id="slots-container">${spinner({ text: 'Cargando horarios...' })}</div>
   `;
@@ -315,6 +373,7 @@ async function renderSlotStep(container, selection, { next }) {
       branchId: selection.branch.id,
       from: selection.date,
       to: selection.date,
+      duration: selection.treatment.duration_minutes,
     });
     const slots = res.data ?? [];
 
@@ -367,14 +426,14 @@ function renderSlotGroup(label, slots) {
   `;
 }
 
-// ----- 5: Confirmar -----
+// ----- 6: Confirmar -----
 
 function renderConfirmStep(container, selection, { finish, cancel, next }) {
   if (!selection.slot) return cancel();
 
   const fullDate = formatLongDate(selection.date);
   const dentistName = fullName(selection.dentist);
-  const duracion = selection.slot.duracion_minutos ?? 30;
+  const duracion = selection.treatment?.duration_minutes ?? selection.slot.duracion_minutos ?? 30;
 
   container.innerHTML = `
     <p class="subtitle">Revisa los datos antes de confirmar tu cita:</p>
@@ -398,6 +457,12 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
         <div class="booking-summary-row">
           <div class="booking-summary-label">Especialidad</div>
           <div class="booking-summary-value">${escapeHtml(selection.dentist.especialidad)}</div>
+        </div>
+      ` : ''}
+      ${selection.treatment ? `
+        <div class="booking-summary-row">
+          <div class="booking-summary-label">🦷 Tratamiento</div>
+          <div class="booking-summary-value">${escapeHtml(selection.treatment.name)} (${duracion} min)</div>
         </div>
       ` : ''}
       <div class="booking-summary-row">
@@ -454,6 +519,10 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
         horaInicio: selection.slot.hora_inicio,
         horaFin: selection.slot.hora_fin,
         notas: selection.notas || undefined,
+        treatmentName:
+          selection.treatment && selection.treatment.id !== '__default__'
+            ? selection.treatment.name
+            : undefined,
       });
 
       showModal({

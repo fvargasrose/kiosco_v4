@@ -1094,6 +1094,7 @@ class DentalinkClient {
     horaInicio: string; // HH:mm
     horaFin: string; // HH:mm
     notas?: string;
+    treatmentName?: string;
     dentalinkToken: string | null;
   }): Promise<DentalinkAppointment> {
     const {
@@ -1105,8 +1106,15 @@ class DentalinkClient {
       horaInicio,
       horaFin,
       notas,
+      treatmentName,
       dentalinkToken,
     } = params;
+
+    // Si se especifica un tratamiento, lo prepondemos al comentario para que el
+    // profesional lo vea en Dentalink. Mantenemos el comentario libre del usuario.
+    const comentarios = treatmentName
+      ? `[${treatmentName}]${notas ? ' ' + notas : ''}`
+      : notas;
 
     if (isMockMode(dentalinkToken)) {
       // Verificar que el slot exista y no esté ya tomado (mocks)
@@ -1144,7 +1152,8 @@ class DentalinkClient {
         dentista: `${dentist.nombre} ${dentist.apellido ?? ''}`.trim(),
         id_sucursal: sucursalId,
         sucursal: sucursal?.nombre ?? '',
-        tratamiento: notas || 'Consulta',
+        tratamiento: treatmentName || notas || 'Consulta',
+        observaciones: comentarios,
       };
       MOCK_APPOINTMENTS.push(newApt);
       await this.invalidatePatientCache(patientId);
@@ -1165,7 +1174,7 @@ class DentalinkClient {
       hora_inicio: horaInicio,
       hora_fin: horaFin,
       duracion,
-      comentarios: notas,
+      comentarios,
     };
     if (sillonId !== undefined) body.id_sillon = sillonId;
     logger.info({ body }, 'createAppointment → Dentalink POST /api/v1/citas');

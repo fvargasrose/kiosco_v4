@@ -56,6 +56,35 @@ const PatchClinicBody = z.object({
   standby_subtitle: z.string().max(200).optional().nullable(),
 });
 
+// =============================================================================
+// Procedimientos / Tratamientos (clinic_procedures)
+// =============================================================================
+// Dentalink solo acepta estas duraciones (validado empíricamente). Otras son
+// redondeadas silenciosamente por /agendas y rechazadas por POST /citas.
+const VALID_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120] as const;
+
+const DurationSchema = z.number().int().refine(
+  (n) => (VALID_DURATIONS as readonly number[]).includes(n),
+  {
+    message:
+      'duration_minutes debe ser uno de: 15, 30, 45, 60, 75, 90, 105, 120 (limitación de la API de Dentalink)',
+  },
+);
+
+const ProcedureCreateBody = z.object({
+  name:             z.string().trim().min(1).max(100),
+  duration_minutes: DurationSchema,
+  description:      z.string().max(500).optional().nullable(),
+  active:           z.boolean().optional(),
+});
+
+const ProcedureUpdateBody = z.object({
+  name:             z.string().trim().min(1).max(100).optional(),
+  duration_minutes: DurationSchema.optional(),
+  description:      z.string().max(500).optional().nullable(),
+  active:           z.boolean().optional(),
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
@@ -278,6 +307,123 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
              updated_at = now()
          WHERE id = 1`,
       );
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ===========================================================================
+  // Procedimientos / Tratamientos
+  // ===========================================================================
+
+  // ── GET /admin/procedures — lista todos (activos + inactivos) ──────────────
+  app.get('/admin/procedures', { preHandler: requireAdmin }, async (_req, reply) => {
+    const r = await db.query<{
+      id: string;
+      name: string;
+      duration_minutes: number;
+      description: string | null;
+      active: boolean;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, name, duration_minutes, description, active, created_at, updated_at
+       FROM clinic_procedures
+       WHERE clinic_id = 1
+       ORDER BY active DESC, name ASC`,
+    );
+    return reply.send({ data: r.rows, total: r.rows.length });
+  });
+
+  // ── POST /admin/procedures — crear ────────────────────────────────────────
+  app.post('/admin/procedures', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = ProcedureCreateBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: 'BAD_REQUEST',
+        message: parsed.error.issues[0]?.message ?? 'Datos inválidos',
+        details: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+      });
+    }
+    const { name, duration_minutes, description, active } = parsed.data;
+
+    const r = await db.query<{ id: string }>(
+      `INSERT INTO clinic_procedures (clinic_id, name, duration_minutes, description, active)
+       VALUES (1, $1, $2, $3, COALESCE($4, true))
+       RETURNING id`,
+      [name, duration_minutes, description ?? null, active ?? null],
+    );
+
+    logger.info(
+      { id: r.rows[0]?.id, name, duration_minutes },
+      'Procedure created',
+    );
+    return reply.code(201).send({ ok: true, id: r.rows[0]?.id });
+  });
+
+  // ── PUT /admin/procedures/:id — actualizar ────────────────────────────────
+  app.put<{ Params: { id: string } }>(
+    '/admin/procedures/:id',
+    { preHandler: requireAdmin },
+    async (req, reply) => {
+      const { id } = req.params;
+      const parsed = ProcedureUpdateBody.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'BAD_REQUEST',
+          message: parsed.error.issues[0]?.message ?? 'Datos inválidos',
+          details: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+
+      const sets: string[] = ['updated_at = now()'];
+      const vals: unknown[] = [];
+      let idx = 1;
+      if (parsed.data.name !== undefined) {
+        sets.push(`name = $${idx++}`);
+        vals.push(parsed.data.name);
+      }
+      if (parsed.data.duration_minutes !== undefined) {
+        sets.push(`duration_minutes = $${idx++}`);
+        vals.push(parsed.data.duration_minutes);
+      }
+      if (parsed.data.description !== undefined) {
+        sets.push(`description = $${idx++}`);
+        vals.push(parsed.data.description);
+      }
+      if (parsed.data.active !== undefined) {
+        sets.push(`active = $${idx++}`);
+        vals.push(parsed.data.active);
+      }
+      vals.push(id);
+
+      const r = await db.query<{ id: string }>(
+        `UPDATE clinic_procedures SET ${sets.join(', ')}
+         WHERE id = $${idx} AND clinic_id = 1
+         RETURNING id`,
+        vals,
+      );
+      if (r.rowCount === 0) {
+        return reply.code(404).send({ error: 'NOT_FOUND' });
+      }
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── DELETE /admin/procedures/:id — soft delete ────────────────────────────
+  app.delete<{ Params: { id: string } }>(
+    '/admin/procedures/:id',
+    { preHandler: requireAdmin },
+    async (req, reply) => {
+      const { id } = req.params;
+      const r = await db.query(
+        `UPDATE clinic_procedures
+         SET active = false, updated_at = now()
+         WHERE id = $1 AND clinic_id = 1`,
+        [id],
+      );
+      if (r.rowCount === 0) {
+        return reply.code(404).send({ error: 'NOT_FOUND' });
+      }
       return reply.send({ ok: true });
     },
   );

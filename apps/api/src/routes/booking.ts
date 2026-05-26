@@ -248,6 +248,7 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
     hora_inicio: TimeSchema,
     hora_fin: TimeSchema,
     notas: z.string().max(500).optional(),
+    treatment_name: z.string().trim().min(1).max(100).optional(),
   });
 
   app.post(
@@ -263,7 +264,8 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
           details: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
         });
       }
-      const { dentist_id, branch_id, fecha, hora_inicio, hora_fin, notas } = parsed.data;
+      const { dentist_id, branch_id, fecha, hora_inicio, hora_fin, notas, treatment_name } =
+        parsed.data;
 
       // === Validaciones de negocio ===
       if (!isInFuture(fecha, hora_inicio)) {
@@ -319,6 +321,7 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
           horaInicio: hora_inicio,
           horaFin: hora_fin,
           notas,
+          treatmentName: treatment_name,
           dentalinkToken: token,
         });
 

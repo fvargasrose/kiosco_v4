@@ -1,22 +1,30 @@
 import { api, ApiError } from '../api.js';
 
+const VALID_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120];
+
 export async function renderClinicConfig(container) {
   container.innerHTML = `<div class="loading"><div class="spinner"></div> Cargando...</div>`;
 
   let clinic;
+  let procedures = [];
   try {
-    clinic = await api.getClinic();
+    const [clinicRes, proceduresRes] = await Promise.all([
+      api.getClinic(),
+      api.getProcedures().catch(() => ({ data: [] })),
+    ]);
+    clinic = clinicRes;
+    procedures = proceduresRes.data ?? [];
   } catch {
     container.innerHTML = `<div class="alert alert-error" style="margin:2rem">Error al cargar la configuración.</div>`;
     return;
   }
 
-  render(container, clinic);
+  render(container, clinic, procedures);
 }
 
 // clinic shape from API:
 // { display_name, standby: { mode, title, subtitle, has_media, media_hash, media_updated_at }, ... }
-function render(container, clinic) {
+function render(container, clinic, procedures) {
   const sb = clinic.standby || {};
   const mode = sb.mode || 'mensaje';
   const hasMedia = !!sb.has_media;
@@ -109,6 +117,22 @@ function render(container, clinic) {
       <div id="clinic-save-alert"></div>
       <button type="button" class="btn btn-primary" id="clinic-save-btn">Guardar nombre</button>
     </div>
+
+    <!-- Procedimientos / Tratamientos -->
+    <div class="card">
+      <div class="card-title">Procedimientos / Tratamientos</div>
+      <p style="margin: 0 0 1rem; color: var(--muted); font-size: 0.875rem">
+        Catálogo que verá el paciente al agendar una cita. La duración elegida se envía a Dentalink.
+      </p>
+      <div id="procedures-table">${renderProceduresTable(procedures)}</div>
+      <div id="procedure-alert" style="margin-top: .75rem"></div>
+      <button type="button" class="btn btn-primary" id="add-procedure-btn" style="margin-top: 1rem">
+        + Agregar procedimiento
+      </button>
+    </div>
+
+    <!-- Modal de procedure (oculto por defecto) -->
+    <div id="procedure-modal" class="modal-overlay" style="display:none"></div>
   `;
 
   if (hasMedia) buildMediaPreview(container, mode);
@@ -214,6 +238,217 @@ function render(container, clinic) {
       clinicSaveBtn.textContent = 'Guardar nombre';
     }
   });
+
+  // ── Procedures (CRUD) ────────────────────────────────────────────────────────
+  bindProceduresHandlers(container);
+}
+
+// =============================================================================
+// Procedimientos / Tratamientos
+// =============================================================================
+
+function renderProceduresTable(procedures) {
+  if (!procedures || procedures.length === 0) {
+    return `<p style="color: var(--muted); margin: 0">No hay procedimientos configurados aún. El kiosco mostrará "Consulta general" por defecto.</p>`;
+  }
+  return `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th style="width: 110px">Duración</th>
+          <th style="width: 90px">Estado</th>
+          <th style="width: 180px; text-align: right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${procedures.map(procedureRowHtml).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function procedureRowHtml(p) {
+  const active = p.active !== false;
+  return `
+    <tr data-id="${esc(p.id)}" data-active="${active}">
+      <td>
+        <div style="font-weight: 600">${esc(p.name)}</div>
+        ${p.description ? `<div style="font-size: 0.8125rem; color: var(--muted)">${esc(p.description)}</div>` : ''}
+      </td>
+      <td>${p.duration_minutes} min</td>
+      <td>
+        ${active
+          ? '<span class="badge badge-success">Activo</span>'
+          : '<span class="badge" style="background:#e5e7eb;color:#374151">Inactivo</span>'}
+      </td>
+      <td style="text-align: right">
+        <button type="button" class="btn btn-sm" data-action="edit"
+                data-id="${esc(p.id)}">Editar</button>
+        <button type="button" class="btn btn-sm" data-action="toggle"
+                data-id="${esc(p.id)}">${active ? 'Desactivar' : 'Activar'}</button>
+      </td>
+    </tr>
+  `;
+}
+
+function bindProceduresHandlers(container) {
+  const addBtn = container.querySelector('#add-procedure-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openProcedureModal(container, null));
+  }
+
+  const table = container.querySelector('#procedures-table');
+  if (table) {
+    table.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+
+      if (action === 'edit') {
+        const procedures = await reloadProcedures(container);
+        const p = procedures.find((x) => x.id === id);
+        if (p) openProcedureModal(container, p);
+      } else if (action === 'toggle') {
+        const row = btn.closest('tr');
+        const isActive = row?.dataset.active === 'true';
+        try {
+          if (isActive) {
+            await api.deleteProcedure(id); // soft delete (active=false)
+          } else {
+            await api.updateProcedure(id, { active: true });
+          }
+          await reloadProcedures(container);
+          showProcedureAlert(container, 'success', isActive ? 'Procedimiento desactivado.' : 'Procedimiento activado.');
+        } catch (err) {
+          const msg = err instanceof ApiError ? (err.body?.message || `Error ${err.status}`) : 'Error de conexión.';
+          showProcedureAlert(container, 'error', msg);
+        }
+      }
+    });
+  }
+}
+
+async function reloadProcedures(container) {
+  try {
+    const res = await api.getProcedures();
+    const procedures = res.data ?? [];
+    const table = container.querySelector('#procedures-table');
+    if (table) table.innerHTML = renderProceduresTable(procedures);
+    return procedures;
+  } catch {
+    return [];
+  }
+}
+
+function openProcedureModal(container, procedure) {
+  const isEdit = !!procedure;
+  const modal = container.querySelector('#procedure-modal');
+  if (!modal) return;
+
+  modal.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-title">${isEdit ? 'Editar procedimiento' : 'Nuevo procedimiento'}</div>
+
+      <div class="form-group">
+        <label for="proc-name">Nombre</label>
+        <input type="text" id="proc-name" class="form-control" maxlength="100"
+               value="${esc(procedure?.name ?? '')}" placeholder="Ej: Limpieza dental">
+      </div>
+
+      <div class="form-group">
+        <label for="proc-duration">Duración (minutos)</label>
+        <select id="proc-duration" class="form-control">
+          ${VALID_DURATIONS.map((d) => `
+            <option value="${d}" ${procedure?.duration_minutes === d ? 'selected' : ''}>${d} min</option>
+          `).join('')}
+        </select>
+        <div class="form-help">
+          Solo se permiten estas duraciones porque la API de Dentalink las rechaza si son diferentes.
+          Si tu procedimiento dura 40 min, elige 45 — la API redondea al múltiplo válido más cercano.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="proc-description">Descripción (opcional)</label>
+        <textarea id="proc-description" class="form-control" rows="2" maxlength="500"
+                  placeholder="Texto opcional que verá el paciente">${esc(procedure?.description ?? '')}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="proc-active" ${procedure?.active !== false ? 'checked' : ''}>
+          Activo (visible en el kiosco)
+        </label>
+      </div>
+
+      <div id="proc-modal-alert"></div>
+
+      <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
+        <button type="button" class="btn" id="proc-modal-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="proc-modal-save">
+          ${isEdit ? 'Guardar cambios' : 'Crear'}
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = '';
+
+  const close = () => {
+    modal.style.display = 'none';
+    modal.innerHTML = '';
+  };
+
+  modal.querySelector('#proc-modal-cancel').addEventListener('click', close);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) close();
+  });
+
+  const saveBtn = modal.querySelector('#proc-modal-save');
+  saveBtn.addEventListener('click', async () => {
+    const name = modal.querySelector('#proc-name').value.trim();
+    const duration_minutes = Number(modal.querySelector('#proc-duration').value);
+    const description = modal.querySelector('#proc-description').value.trim() || null;
+    const active = modal.querySelector('#proc-active').checked;
+    const alertEl = modal.querySelector('#proc-modal-alert');
+    alertEl.innerHTML = '';
+
+    if (!name) {
+      alertEl.innerHTML = `<div class="alert alert-error">El nombre es obligatorio.</div>`;
+      return;
+    }
+    if (!VALID_DURATIONS.includes(duration_minutes)) {
+      alertEl.innerHTML = `<div class="alert alert-error">Duración inválida.</div>`;
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando...';
+    try {
+      const body = { name, duration_minutes, description, active };
+      if (isEdit) {
+        await api.updateProcedure(procedure.id, body);
+      } else {
+        await api.createProcedure(body);
+      }
+      close();
+      await reloadProcedures(container);
+      showProcedureAlert(container, 'success', isEdit ? 'Procedimiento actualizado.' : 'Procedimiento creado.');
+    } catch (err) {
+      const msg = err instanceof ApiError ? (err.body?.message || `Error ${err.status}`) : 'Error de conexión.';
+      alertEl.innerHTML = `<div class="alert alert-error">${esc(msg)}</div>`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = isEdit ? 'Guardar cambios' : 'Crear';
+    }
+  });
+}
+
+function showProcedureAlert(container, type, msg) {
+  const el = container.querySelector('#procedure-alert');
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type}">${esc(msg)}</div>`;
+  setTimeout(() => { if (el.firstChild) el.innerHTML = ''; }, 4000);
 }
 
 async function handleFileUpload(container, file) {

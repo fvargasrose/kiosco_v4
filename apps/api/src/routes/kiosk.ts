@@ -99,7 +99,6 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       habeas_data_policy_text: string | null;
       habeas_data_policy_version: string;
       habeas_data_policy_hash: string | null;
-      procedures: Array<{ name: string; duration: number; description?: string }>;
       faq: Array<{ question: string; answer: string }>;
       whatsapp_number: string | null;
       whatsapp_welcome_message: string | null;
@@ -110,7 +109,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
     }>(`
       SELECT display_name, logo_path,
              habeas_data_policy_text, habeas_data_policy_version, habeas_data_policy_hash,
-             procedures, faq,
+             faq,
              whatsapp_number, whatsapp_welcome_message,
              duracion_cita_minutos,
              standby_mode, standby_title, standby_subtitle
@@ -124,6 +123,19 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
         message: 'La clínica aún no ha sido configurada. Contacte al administrador.',
       });
     }
+
+    // Procedimientos activos del catálogo local
+    const proceduresResult = await db.query<{
+      id: string;
+      name: string;
+      duration_minutes: number;
+      description: string | null;
+    }>(`
+      SELECT id, name, duration_minutes, description
+      FROM clinic_procedures
+      WHERE clinic_id = 1 AND active = true
+      ORDER BY name ASC
+    `);
 
     return reply.send({
       kiosk: {
@@ -139,7 +151,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
         hash: clinic.habeas_data_policy_hash,
         text: clinic.habeas_data_policy_text,
       },
-      procedures: clinic.procedures ?? [],
+      procedures: proceduresResult.rows,
       faq: clinic.faq ?? [],
       whatsapp: clinic.whatsapp_number
         ? {

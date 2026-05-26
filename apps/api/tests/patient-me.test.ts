@@ -38,15 +38,12 @@ beforeAll(async () => {
     await db.query(
       `INSERT INTO clinic (id, legal_name, display_name, nit, license_key,
                           habeas_data_policy_version, habeas_data_policy_hash,
-                          habeas_data_policy_text, procedures, faq)
-       VALUES (1, 'Test Clinic', 'Test', '000', 'TEST', $1, $2, $3, $4, $5)`,
+                          habeas_data_policy_text, faq)
+       VALUES (1, 'Test Clinic', 'Test', '000', 'TEST', $1, $2, $3, $4)`,
       [
         'test-v1',
         POLICY_HASH,
         POLICY_TEXT,
-        JSON.stringify([
-          { name: 'Limpieza dental', duration: 30, description: 'Profilaxis' },
-        ]),
         JSON.stringify([
           { question: '¿Qué traer?', answer: 'Solo tu cédula.' },
         ]),
@@ -58,22 +55,25 @@ beforeAll(async () => {
         habeas_data_policy_version = $1,
         habeas_data_policy_hash = $2,
         habeas_data_policy_text = $3,
-        procedures = $4,
-        faq = $5
+        faq = $4
        WHERE id = 1`,
       [
         'test-v1',
         POLICY_HASH,
         POLICY_TEXT,
         JSON.stringify([
-          { name: 'Limpieza dental', duration: 30, description: 'Profilaxis' },
-        ]),
-        JSON.stringify([
           { question: '¿Qué traer?', answer: 'Solo tu cédula.' },
         ]),
       ],
     );
   }
+
+  // Procedures en la tabla nueva (bootstrap lee desde clinic_procedures)
+  await db.query(`DELETE FROM clinic_procedures WHERE clinic_id = 1`);
+  await db.query(
+    `INSERT INTO clinic_procedures (clinic_id, name, duration_minutes, description, active)
+     VALUES (1, 'Limpieza dental', 30, 'Profilaxis', true)`,
+  );
 
   // Kiosco de prueba
   await db.query(`DELETE FROM kiosks WHERE name LIKE 'TEST%'`);
