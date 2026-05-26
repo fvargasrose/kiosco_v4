@@ -187,12 +187,13 @@ class ApiClient {
     });
   }
 
-  async getSlots({ dentistId, from, to, duration }) {
+  async getSlots({ dentistId, branchId, from, to, duration }) {
     const qs = new URLSearchParams({
       dentist_id: dentistId,
       from,
       to,
     });
+    if (branchId) qs.set('branch_id', String(branchId));
     if (duration) qs.set('duration', String(duration));
     return this._fetch(`/me/booking/slots?${qs.toString()}`, { _usePatient: true });
   }

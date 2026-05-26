@@ -231,12 +231,19 @@ const MOCK_SUCURSALES: DentalinkSucursal[] = [
 /**
  * Genera slots disponibles deterministas para mock mode.
  *
- * Lógica:
- *   - Cada dentista trabaja Lun-Sáb, 9:00-12:00 y 14:00-17:00
- *   - Slots de 30 minutos
- *   - Para que parezca real, "ocupa" pseudoaleatoriamente algunos slots
- *     usando un hash determinista del (id_dentista + fecha + hora)
+ * Simula el comportamiento real de `/api/v1/agendas`:
+ *   - Solo devuelve slots LIBRES (excluye los presentes en MOCK_APPOINTMENTS)
+ *   - Limita a MOCK_AGENDAS_LIMIT slots por día (la API real devuelve máx 10 items por request)
+ *   - Calendario: Lun-Sáb 9:00-12:00 y 14:00-17:00 (sábado solo mañana)
+ *   - El parámetro `duracion` controla el tamaño del slot — se respeta tal cual
+ *     (la normalización a duraciones válidas debe hacerse antes de llamar)
+ *
+ * El "desborde" de la API real (fechas posteriores cuando el día pedido tiene <10
+ * libres) NO se simula en el mock porque siempre filtramos por fecha exacta
+ * después de la llamada — el resultado neto es indistinguible.
  */
+const MOCK_AGENDAS_LIMIT = 10;
+
 function generateMockSlots(
   idDentista: string,
   fechaDesde: Date,
@@ -255,53 +262,61 @@ function generateMockSlots(
   while (cursor <= hasta) {
     const dow = cursor.getDay(); // 0=domingo
     if (dow !== 0) {
-      // Lun-Sáb
+      const fecha = cursor.toISOString().slice(0, 10);
+      const occupied = new Set(
+        MOCK_APPOINTMENTS.filter(
+          (a) =>
+            a.id_dentista === idDentista &&
+            a.fecha === fecha &&
+            a.estado !== 'Cancelada',
+        ).map((a) => a.hora_inicio),
+      );
+
       const morningEnd = dow === 6 ? 13 : 12;
-      const eveningStart = dow === 6 ? 0 : 14; // sábado solo mañana
+      const eveningStart = dow === 6 ? 0 : 14;
       const eveningEnd = dow === 6 ? 0 : 17;
 
-      // Mañana
-      for (let h = 9 * 60; h < morningEnd * 60; h += duracionMinutos) {
-        addSlotIfAvailable(slots, dentista, cursor, h, duracionMinutos);
+      const daySlots: DentalinkSlot[] = [];
+      for (let h = 9 * 60; h + duracionMinutos <= morningEnd * 60; h += duracionMinutos) {
+        appendSlot(daySlots, dentista, cursor, h, duracionMinutos, occupied);
       }
-      // Tarde
       if (eveningEnd > eveningStart) {
-        for (let h = eveningStart * 60; h < eveningEnd * 60; h += duracionMinutos) {
-          addSlotIfAvailable(slots, dentista, cursor, h, duracionMinutos);
+        for (let h = eveningStart * 60; h + duracionMinutos <= eveningEnd * 60; h += duracionMinutos) {
+          appendSlot(daySlots, dentista, cursor, h, duracionMinutos, occupied);
         }
       }
+
+      // Simular límite de la API: máximo MOCK_AGENDAS_LIMIT por día
+      slots.push(...daySlots.slice(0, MOCK_AGENDAS_LIMIT));
     }
     cursor.setDate(cursor.getDate() + 1);
   }
   return slots;
 }
 
-function addSlotIfAvailable(
+function appendSlot(
   slots: DentalinkSlot[],
   dentista: DentalinkDentist,
   date: Date,
   minuteOfDay: number,
   duracion: number,
+  occupied: Set<string>,
 ): void {
   const startMs = new Date(date).setHours(0, 0, 0, 0) + minuteOfDay * 60_000;
   if (startMs < Date.now()) return; // no slots pasados
 
-  // "Ocupación" pseudoaleatoria pero determinista
-  const hashKey = `${dentista.id}-${date.toISOString().slice(0, 10)}-${minuteOfDay}`;
-  let h = 0;
-  for (let i = 0; i < hashKey.length; i++) h = (h * 31 + hashKey.charCodeAt(i)) | 0;
-  if (((h % 10) + 10) % 10 < 4) return; // ~40% ocupados
-
-  const fecha = date.toISOString().slice(0, 10);
   const hi = Math.floor(minuteOfDay / 60).toString().padStart(2, '0');
   const mi = (minuteOfDay % 60).toString().padStart(2, '0');
+  const hora_inicio = `${hi}:${mi}`;
+  if (occupied.has(hora_inicio)) return; // slot ocupado por una cita existente
+
   const endMin = minuteOfDay + duracion;
   const he = Math.floor(endMin / 60).toString().padStart(2, '0');
   const me = (endMin % 60).toString().padStart(2, '0');
 
   slots.push({
-    fecha,
-    hora_inicio: `${hi}:${mi}`,
+    fecha: date.toISOString().slice(0, 10),
+    hora_inicio,
     hora_fin: `${he}:${me}`,
     id_dentista: dentista.id,
     id_sucursal: dentista.id_sucursal,
@@ -309,79 +324,21 @@ function addSlotIfAvailable(
   });
 }
 
-// Genera slots a partir del horario real devuelto por Dentalink (/api/v1/horarios).
-// No consulta citas ocupadas — si el slot ya está tomado, Dentalink rechaza el POST con 409.
-function generateSlotsFromHorario(
-  horario: {
-    id_dentista: number;
-    id_sucursal: number;
-    intervalo: number;
-    dias: Array<{
-      dia: number;
-      hora_inicio: string;
-      hora_fin: string;
-      hora_inicio_break: string;
-      hora_fin_break: string;
-    }>;
-  },
-  idDentista: string,
-  fechaDesde: string,
-  fechaHasta: string,
-  duracionMinutos: number,
-): DentalinkSlot[] {
-  const parseHHMM = (t: string): number => {
-    const [h, m] = t.split(':').map(Number);
-    return h! * 60 + m!;
-  };
+// Convierte "YYYY-MM-DD" → "DD/MM/YYYY" para comparar contra el formato que
+// `/api/v1/agendas` devuelve en su campo `fecha`.
+function toDDMMYYYY(yyyyMmDd: string): string {
+  const [y, m, d] = yyyyMmDd.split('-');
+  return `${d}/${m}/${y}`;
+}
 
-  // Tamaño real del slot = máximo entre el intervalo del dentista y la duración pedida
-  const slotMin = Math.max(horario.intervalo ?? 30, duracionMinutos);
-
-  const slots: DentalinkSlot[] = [];
-  const cursor = new Date(`${fechaDesde}T00:00:00`);
-  const hasta = new Date(`${fechaHasta}T23:59:59`);
-
-  while (cursor <= hasta) {
-    // JS: 0=Dom, 1=Lun…6=Sáb → Dentalink: 1=Lun…6=Sáb, 7=Dom
-    const jsDow = cursor.getDay();
-    const dlDia = jsDow === 0 ? 7 : jsDow;
-
-    const daySchedule = horario.dias.find((d) => d.dia === dlDia);
-    if (daySchedule) {
-      const start = parseHHMM(daySchedule.hora_inicio);
-      const end = parseHHMM(daySchedule.hora_fin);
-      const brkStart = parseHHMM(daySchedule.hora_inicio_break);
-      const brkEnd = parseHHMM(daySchedule.hora_fin_break);
-      const hasBreak = brkStart < brkEnd;
-
-      if (start < end) {
-        for (let t = start; t + slotMin <= end; t += slotMin) {
-          // Saltar slots que se solapan con el descanso
-          if (hasBreak && t < brkEnd && t + slotMin > brkStart) continue;
-
-          // Saltar slots en el pasado
-          const slotDate = new Date(cursor);
-          slotDate.setHours(Math.floor(t / 60), t % 60, 0, 0);
-          if (slotDate.getTime() <= Date.now()) continue;
-
-          const fecha = cursor.toISOString().slice(0, 10);
-          const fmtMin = (m: number) =>
-            `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-
-          slots.push({
-            fecha,
-            hora_inicio: fmtMin(t),
-            hora_fin: fmtMin(t + slotMin),
-            id_dentista: idDentista,
-            id_sucursal: horario.id_sucursal,
-            duracion_minutos: slotMin,
-          });
-        }
-      }
-    }
+// Itera todas las fechas en un rango inclusivo [from, to] (ambas en YYYY-MM-DD).
+function* eachDateInRange(from: string, to: string): Generator<string> {
+  const cursor = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  while (cursor <= end) {
+    yield cursor.toISOString().slice(0, 10);
     cursor.setDate(cursor.getDate() + 1);
   }
-  return slots;
 }
 
 // ----- Errores -----
@@ -988,17 +945,27 @@ class DentalinkClient {
    * Cache 1 min en Redis para evitar carga sobre Dentalink en flujos repetitivos
    * de UI (cuando el paciente navega entre días).
    *
+   * Implementación: itera cada día del rango y llama `/api/v1/agendas` por día.
+   *   - La API devuelve solo slots LIBRES (los ocupados se omiten).
+   *   - Devuelve máximo 10 items por llamada; si el día tiene menos, completa con
+   *     slots de días siguientes ("desborde"). Por eso filtramos en cliente por
+   *     `fecha === DD/MM/YYYY` exacto.
+   *   - La API normaliza silenciosamente la `duracion` al múltiplo válido más
+   *     cercano según el `intervalo` configurado en Dentalink por dentista.
+   *
    * @param duracionMinutos Duración del procedimiento. Por defecto 30 min.
-   *                        Viene de `clinic.duracion_cita_minutos` o el procedimiento.
+   *                        Debe ser ∈ {15,30,45,60,75,90,105,120} para evitar
+   *                        normalización silenciosa.
    */
   async getAvailableSlots(
     idDentista: string,
+    sucursalId: number,
     fechaDesde: string, // YYYY-MM-DD
     fechaHasta: string, // YYYY-MM-DD
     duracionMinutos: number,
     dentalinkToken: string | null,
   ): Promise<DentalinkSlot[]> {
-    const cacheKey = `dl:slots:${idDentista}:${fechaDesde}:${fechaHasta}:${duracionMinutos}`;
+    const cacheKey = `dl:slots:${idDentista}:${sucursalId}:${fechaDesde}:${fechaHasta}:${duracionMinutos}`;
     const cached = await getCached<DentalinkSlot[]>(cacheKey);
     if (cached) return cached;
 
@@ -1010,37 +977,63 @@ class DentalinkClient {
       return list;
     }
 
-    // Dentalink no tiene endpoint de slots disponibles.
-    // Usamos el horario del dentista y generamos los slots teóricos.
-    // Si un slot ya está ocupado, Dentalink rechazará el POST /citas con 409.
-    const horarioData = await dentalinkRequest<{
-      data?: Array<{
-        id_dentista: number;
-        id_sucursal: number;
-        intervalo: number;
-        dias: Array<{
-          dia: number;              // 1=Lunes … 6=Sábado, 7=Domingo
-          hora_inicio: string;     // "HH:MM:SS"
-          hora_fin: string;
-          hora_inicio_break: string;
-          hora_fin_break: string;
-        }>;
-      }>;
-    }>(
-      '/api/v1/horarios',
-      dentalinkToken!,
-      { query: { q: JSON.stringify({ id_dentista: { eq: Number(idDentista) } }) } },
-    );
+    const all: DentalinkSlot[] = [];
+    for (const fecha of eachDateInRange(fechaDesde, fechaHasta)) {
+      const filter = JSON.stringify({
+        id_sucursal: { eq: sucursalId },
+        id_dentista: { eq: Number(idDentista) },
+        fecha: { eq: fecha },
+        duracion: { eq: duracionMinutos },
+      });
 
-    const horario = horarioData.data?.[0];
-    if (!horario) {
-      await setCached(cacheKey, [], CACHE_TTL_SLOTS);
-      return [];
+      let agendaData: {
+        data?: Array<{
+          id_paciente: number;
+          hora_inicio: string; // "HH:MM"
+          hora_fin: string;
+          duracion: number;
+          id_dentista: number;
+          fecha: string; // "DD/MM/YYYY"
+          id_recurso?: number;
+        }>;
+      };
+      try {
+        agendaData = await dentalinkRequest('/api/v1/agendas', dentalinkToken!, {
+          query: { q: filter },
+        });
+      } catch (err) {
+        // Si Dentalink devuelve 404/400 para un día puntual, lo tratamos como
+        // "sin slots" y seguimos con el siguiente día.
+        if (
+          err instanceof DentalinkError &&
+          (err.code === 'NOT_FOUND' || err.code === 'BAD_REQUEST')
+        ) {
+          logger.warn(
+            { err: err.message, fecha, idDentista },
+            'Dentalink /agendas devolvió error para un día — sin slots',
+          );
+          continue;
+        }
+        throw err;
+      }
+
+      const fechaDDMMYYYY = toDDMMYYYY(fecha);
+      const items = (agendaData.data ?? []).filter((s) => s.fecha === fechaDDMMYYYY);
+
+      for (const s of items) {
+        all.push({
+          fecha,
+          hora_inicio: s.hora_inicio.slice(0, 5),
+          hora_fin: s.hora_fin.slice(0, 5),
+          id_dentista: idDentista,
+          id_sucursal: sucursalId,
+          duracion_minutos: s.duracion,
+        });
+      }
     }
 
-    const list = generateSlotsFromHorario(horario, idDentista, fechaDesde, fechaHasta, duracionMinutos);
-    await setCached(cacheKey, list, CACHE_TTL_SLOTS);
-    return list;
+    await setCached(cacheKey, all, CACHE_TTL_SLOTS);
+    return all;
   }
 
   /**

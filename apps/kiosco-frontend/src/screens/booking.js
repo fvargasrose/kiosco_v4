@@ -312,6 +312,7 @@ async function renderSlotStep(container, selection, { next }) {
   try {
     const res = await api.getSlots({
       dentistId: selection.dentist.id,
+      branchId: selection.branch.id,
       from: selection.date,
       to: selection.date,
     });

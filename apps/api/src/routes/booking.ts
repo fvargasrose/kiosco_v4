@@ -63,15 +63,24 @@ async function getDentalinkToken(): Promise<string | null> {
 }
 
 /**
- * Obtiene configuración de booking desde clinic: duración y sillón por defecto.
+ * Obtiene configuración de booking desde clinic: duración, sillón y sucursal por defecto.
  */
-async function getClinicBookingConfig(): Promise<{ durationMin: number; sillonId: number }> {
-  const r = await db.query<{ duracion_cita_minutos: number | null; sillon_id: number | null }>(
-    `SELECT duracion_cita_minutos, sillon_id FROM clinic WHERE id = 1`,
+async function getClinicBookingConfig(): Promise<{
+  durationMin: number;
+  sillonId: number;
+  sucursalId: number;
+}> {
+  const r = await db.query<{
+    duracion_cita_minutos: number | null;
+    sillon_id: number | null;
+    sucursal_id: number | null;
+  }>(
+    `SELECT duracion_cita_minutos, sillon_id, sucursal_id FROM clinic WHERE id = 1`,
   );
   return {
     durationMin: r.rows[0]?.duracion_cita_minutos ?? DEFAULT_DURATION_MINUTES,
     sillonId: r.rows[0]?.sillon_id ?? 1,
+    sucursalId: r.rows[0]?.sucursal_id ?? 1,
   };
 }
 
@@ -168,6 +177,7 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
   // ---------------------------------------------------------------------------
   const SlotsQuerySchema = z.object({
     dentist_id: z.string().min(1).max(100),
+    branch_id: z.coerce.number().int().positive().optional(),
     from: DateOnlySchema,
     to: DateOnlySchema,
     duration: z.coerce.number().int().min(15).max(180).optional(),
@@ -182,7 +192,7 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
         details: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
       });
     }
-    const { dentist_id, from, to, duration } = parsed.data;
+    const { dentist_id, branch_id, from, to, duration } = parsed.data;
 
     const fromDate = parseDateLocal(from);
     const toDate = parseDateLocal(to);
@@ -210,9 +220,18 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const token = await getDentalinkToken();
-      const { durationMin: defaultDuration } = await getClinicBookingConfig();
+      const { durationMin: defaultDuration, sucursalId: defaultSucursal } =
+        await getClinicBookingConfig();
       const durationMin = duration ?? defaultDuration;
-      const slots = await dentalink.getAvailableSlots(dentist_id, from, to, durationMin, token);
+      const sucursalId = branch_id ?? defaultSucursal;
+      const slots = await dentalink.getAvailableSlots(
+        dentist_id,
+        sucursalId,
+        from,
+        to,
+        durationMin,
+        token,
+      );
       return reply.send({ data: slots, total: slots.length, duration_minutes: durationMin });
     } catch (err) {
       return handleDentalinkError(err, reply);
