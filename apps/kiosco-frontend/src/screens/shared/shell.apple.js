@@ -6,7 +6,7 @@
  */
 
 import { api } from '../../api.js';
-import { clearPatient } from '../../state.js';
+import { clearPatient, state } from '../../state.js';
 import { toast } from '../../components/toast.js';
 
 let sidebarCollapsed = false;
@@ -44,12 +44,18 @@ export function renderAppleShell(container, activeNav, navigate, renderContent) 
     </button>
   `).join('');
 
+  const logoUrl = state.config?.clinic?.logo_url ?? null;
+  const clinicName = state.config?.clinic?.display_name ?? 'Clínica';
+  const brandHtml = logoUrl
+    ? `<img class="ak-sidebar-logo" src="${escAttr(logoUrl)}" alt="${escAttr(clinicName)}">`
+    : `<div class="ak-logo-circle"><i class="ti ti-tooth"></i></div>`;
+
   container.innerHTML = `
     <div class="ak-shell${sidebarCollapsed ? ' collapsed' : ''}">
       <aside class="ak-sidebar">
         <div class="ak-sidebar-header">
-          <div class="ak-logo-circle"><i class="ti ti-tooth"></i></div>
-          <span class="ak-logo-text">DentalKiosco</span>
+          ${brandHtml}
+          <span class="ak-logo-text">${escHtml(clinicName)}</span>
         </div>
 
         <nav class="ak-nav">
@@ -110,4 +116,17 @@ export function renderAppleShell(container, activeNav, navigate, renderContent) 
   // Pintar contenido en el main
   const main = container.querySelector('#ak-main-content');
   renderContent(main);
+}
+
+function escHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escAttr(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
 }

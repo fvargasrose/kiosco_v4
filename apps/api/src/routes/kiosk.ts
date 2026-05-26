@@ -96,6 +96,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
     const clinicResult = await db.query<{
       display_name: string;
       logo_path: string | null;
+      logo_hash: string | null;
       habeas_data_policy_text: string | null;
       habeas_data_policy_version: string;
       habeas_data_policy_hash: string | null;
@@ -107,7 +108,7 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       standby_title: string | null;
       standby_subtitle: string | null;
     }>(`
-      SELECT display_name, logo_path,
+      SELECT display_name, logo_path, logo_hash,
              habeas_data_policy_text, habeas_data_policy_version, habeas_data_policy_hash,
              faq,
              whatsapp_number, whatsapp_welcome_message,
@@ -144,7 +145,10 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       },
       clinic: {
         display_name: clinic.display_name,
-        logo_path: clinic.logo_path,
+        // URL pública del logo con cache-buster basado en el hash (404 si no hay logo subido).
+        logo_url: clinic.logo_path
+          ? `/public/clinic-logo${clinic.logo_hash ? `?v=${clinic.logo_hash.slice(0, 12)}` : ''}`
+          : null,
       },
       habeas_data: {
         version: clinic.habeas_data_policy_version,

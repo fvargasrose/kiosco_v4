@@ -13,9 +13,36 @@
  * Esto evita que el usuario use el back-button del browser para violar el flujo.
  */
 
+import { state } from './state.js';
+import { renderClinicHeader } from './components/clinic-header.js';
+
 const screens = new Map();
 let currentCleanup = null;
 let currentScreenName = null;
+
+// Pantallas con shell apple propio (sidebar con logo) — no necesitan header global.
+// Standby usa el logo grande dentro de su layout, también se omite el header.
+const SCREENS_WITHOUT_HEADER = new Set([
+  'home', 'appointments', 'treatments', 'booking', 'payment',
+  'standby',
+]);
+
+function updateClinicGlobalHeader(screenName) {
+  const headerEl = document.getElementById('clinic-global-header');
+  if (!headerEl) return;
+
+  const theme = state.config?.theme;
+  if (theme !== 'apple' || SCREENS_WITHOUT_HEADER.has(screenName)) {
+    headerEl.hidden = true;
+    headerEl.innerHTML = '';
+    return;
+  }
+
+  const logoUrl = state.config?.clinic?.logo_url ?? null;
+  const clinicName = state.config?.clinic?.display_name ?? 'Clínica';
+  headerEl.innerHTML = renderClinicHeader(logoUrl, clinicName);
+  headerEl.hidden = false;
+}
 
 export function registerScreen(name, renderFn) {
   screens.set(name, renderFn);
@@ -53,6 +80,7 @@ export async function navigate(name, params = {}) {
   container.innerHTML = '';
 
   currentScreenName = name;
+  updateClinicGlobalHeader(name);
 
   try {
     const cleanup = await renderFn(container, params, navigate);

@@ -15,11 +15,16 @@ import { getLicenseState, computeMode } from './cache.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const HEALTH_PREFIX = '/health';
+const PUBLIC_PREFIX = '/public/';
 
 export async function licenseMiddleware(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // Activos públicos (logo de la clínica) siempre pasan — no contienen datos sensibles
+  // y deben verse incluso si la licencia está apagada (sería confuso para el usuario).
+  if (request.url.startsWith(PUBLIC_PREFIX)) return;
+
   // En dev mode no aplicamos restricciones
   if (config.LICENSE_DEV_MODE) return;
 

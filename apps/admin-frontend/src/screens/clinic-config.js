@@ -28,9 +28,53 @@ function render(container, clinic, procedures) {
   const sb = clinic.standby || {};
   const mode = sb.mode || 'mensaje';
   const hasMedia = !!sb.has_media;
+  const logo = clinic.logo || { has: false };
 
   container.innerHTML = `
     <h1 class="page-title">Configuración de la clínica</h1>
+
+    <!-- Logo de la clínica -->
+    <div class="card">
+      <div class="card-title">Logo de la clínica</div>
+      <p style="margin: 0 0 1rem; color: var(--muted); font-size: 0.875rem">
+        Aparece en el header de cada pantalla del kiosco y, si la pantalla de espera está en modo "mensaje", también en grande sobre el título.
+      </p>
+
+      ${logo.has ? `
+        <div id="current-logo" style="margin-bottom:1rem">
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+            <span class="badge badge-success">Logo cargado</span>
+            <span style="font-size:.8125rem;color:var(--muted)">
+              ${logo.updated_at ? 'Actualizado ' + formatDate(logo.updated_at) : ''}
+            </span>
+          </div>
+          <div id="logo-preview-wrap">
+            <img src="/api/public/clinic-logo?v=${esc((logo.hash || '').slice(0,12))}"
+                 class="media-preview" alt="Vista previa logo"
+                 style="max-height:160px;max-width:320px;object-fit:contain;background:#fff;padding:8px;border-radius:8px">
+          </div>
+          <div id="logo-meta" style="font-size:.8125rem;color:var(--muted);margin-top:.5rem"></div>
+          <button type="button" class="btn btn-danger" id="delete-logo-btn"
+                  style="margin-top:.75rem;font-size:.875rem;padding:.375rem 1rem">
+            Eliminar logo
+          </button>
+        </div>
+      ` : ''}
+
+      <div class="file-drop" id="logo-drop">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor" style="color:var(--muted)">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12V4m0 8l-3-3m3 3l3-3"/>
+        </svg>
+        <p>Arrastra un PNG, JPG o WEBP (máx. 2 MB) o haz clic</p>
+        <input type="file" id="logo-file" accept="image/png,image/jpeg,image/webp">
+      </div>
+      <div id="logo-upload-progress" style="display:none;margin-top:.75rem">
+        <div class="loading" style="padding:1rem"><div class="spinner"></div> Subiendo...</div>
+      </div>
+      <div id="logo-alert" style="margin-top:.5rem"></div>
+    </div>
 
     <!-- Pantalla de standby -->
     <div class="card">
@@ -239,8 +283,112 @@ function render(container, clinic, procedures) {
     }
   });
 
+  // ── Logo de la clínica ───────────────────────────────────────────────────────
+  bindLogoHandlers(container);
+
   // ── Procedures (CRUD) ────────────────────────────────────────────────────────
   bindProceduresHandlers(container);
+}
+
+function bindLogoHandlers(container) {
+  const drop = container.querySelector('#logo-drop');
+  const fileInput = container.querySelector('#logo-file');
+  const alertEl = container.querySelector('#logo-alert');
+  const deleteBtn = container.querySelector('#delete-logo-btn');
+
+  if (drop && fileInput) {
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      if (e.dataTransfer.files[0]) handleLogoUpload(container, e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) handleLogoUpload(container, fileInput.files[0]);
+    });
+  }
+
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar el logo de la clínica?')) return;
+      deleteBtn.disabled = true;
+      try {
+        await api.deleteClinicLogo();
+        render(container, await api.getClinic(), await reloadProceduresSilent());
+      } catch (err) {
+        const msg = err instanceof ApiError ? (err.body?.message || `Error ${err.status}`) : 'Error de conexión.';
+        if (alertEl) alertEl.innerHTML = `<div class="alert alert-error">${esc(msg)}</div>`;
+        deleteBtn.disabled = false;
+      }
+    });
+  }
+
+  // Mostrar dimensiones del logo actual leyendo del <img> ya en DOM
+  const metaEl = container.querySelector('#logo-meta');
+  const imgEl = container.querySelector('#logo-preview-wrap img');
+  if (metaEl && imgEl) {
+    if (imgEl.complete && imgEl.naturalWidth) {
+      metaEl.textContent = `Dimensiones: ${imgEl.naturalWidth}×${imgEl.naturalHeight}px`;
+    } else {
+      imgEl.addEventListener('load', () => {
+        metaEl.textContent = `Dimensiones: ${imgEl.naturalWidth}×${imgEl.naturalHeight}px`;
+      });
+    }
+  }
+}
+
+async function reloadProceduresSilent() {
+  try { return (await api.getProcedures()).data ?? []; }
+  catch { return []; }
+}
+
+async function handleLogoUpload(container, file) {
+  const alertEl = container.querySelector('#logo-alert');
+  const progress = container.querySelector('#logo-upload-progress');
+  const drop = container.querySelector('#logo-drop');
+
+  if (alertEl) alertEl.innerHTML = '';
+
+  const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!allowed.includes(file.type)) {
+    if (alertEl) alertEl.innerHTML = `<div class="alert alert-error">Tipo inválido. Se esperaba PNG, JPG o WEBP.</div>`;
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    if (alertEl) alertEl.innerHTML = `<div class="alert alert-error">El archivo supera el límite de 2 MB (${(file.size / 1024 / 1024).toFixed(2)} MB).</div>`;
+    return;
+  }
+
+  // Leer dimensiones antes de subir (informativo)
+  let dims = null;
+  try {
+    dims = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  } catch { /* sigue */ }
+
+  if (drop) drop.style.display = 'none';
+  if (progress) progress.style.display = '';
+  try {
+    const res = await api.uploadClinicLogo(file);
+    const procedures = await reloadProceduresSilent();
+    const clinic = await api.getClinic();
+    render(container, clinic, procedures);
+    const meta = container.querySelector('#logo-meta');
+    if (meta && dims) {
+      meta.textContent = `Dimensiones: ${dims.w}×${dims.h}px · Peso: ${(res.bytes / 1024).toFixed(1)} KB`;
+    }
+  } catch (err) {
+    if (drop) drop.style.display = '';
+    if (progress) progress.style.display = 'none';
+    const msg = err instanceof ApiError ? (err.body?.message || `Error ${err.status}`) : 'Error al subir.';
+    if (alertEl) alertEl.innerHTML = `<div class="alert alert-error">${esc(msg)}</div>`;
+  }
 }
 
 // =============================================================================

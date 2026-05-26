@@ -114,11 +114,17 @@ function buildMediaEl(mode, src) {
 }
 
 function renderFrame(container, { mode, title, subtitle, mediaEl }, navigate) {
+  const logoUrl = state.config?.clinic?.logo_url ?? null;
+  const clinicName = state.config?.clinic?.display_name ?? 'Clínica';
+  const brand = logoUrl
+    ? `<img class="standby-logo-img" src="${esc(logoUrl)}" alt="${esc(clinicName)}">`
+    : `<div class="standby-logo">🦷</div>`;
+
   container.innerHTML = `
     <div class="screen standby" id="standby-root">
       <div class="standby-content">
         ${mode === 'mensaje' ? `
-          <div class="standby-logo">🦷</div>
+          ${brand}
           <h1 class="standby-title">${esc(title)}</h1>
           <p class="standby-subtitle">${esc(subtitle)}</p>
         ` : `

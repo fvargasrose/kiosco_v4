@@ -6,10 +6,12 @@
  * Gestión de configuración de la clínica desde el panel admin.
  *
  * Endpoints:
- *   GET  /admin/clinic              — lee config pública + standby
+ *   GET  /admin/clinic              — lee config pública + standby + logo
  *   PATCH /admin/clinic             — actualiza campos de texto/modo
  *   POST  /admin/clinic/standby-media  — sube GIF o video de standby
  *   DELETE /admin/clinic/standby-media — elimina el archivo de standby
+ *   PUT  /admin/clinic/logo         — sube logo (PNG/JPG/WEBP, max 2MB)
+ *   DELETE /admin/clinic/logo       — elimina el logo
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -33,6 +35,10 @@ const ALLOWED_MIME: Record<string, string> = {
 
 const MAX_BYTES = config.UPLOADS_MAX_BYTES;
 
+// Logo de la clínica: límite más estricto y formatos solo de imagen
+const LOGO_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const LOGO_EXTS = ['png', 'jpg', 'webp'] as const;
+
 // Resuelve el directorio de uploads relativo al CWD del proceso
 function uploadsDir(): string {
   return path.resolve(process.cwd(), config.UPLOADS_DIR);
@@ -42,9 +48,45 @@ function standbyFilePath(ext: string): string {
   return path.join(uploadsDir(), `standby.${ext}`);
 }
 
+function logoFilePath(ext: string): string {
+  return path.join(uploadsDir(), `clinic-logo.${ext}`);
+}
+
 // Calcula SHA-256 hex de un Buffer
 function sha256hex(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
+}
+
+/**
+ * Detecta el tipo real de imagen por magic bytes.
+ * No confía en el mimetype declarado por el cliente (puede mentir).
+ * Solo acepta PNG, JPEG y WEBP.
+ */
+function detectImageMime(buf: Buffer): { mime: string; ext: 'png' | 'jpg' | 'webp' } | null {
+  if (buf.length < 12) return null;
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
+  ) {
+    return { mime: 'image/png', ext: 'png' };
+  }
+
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { mime: 'image/jpeg', ext: 'jpg' };
+  }
+
+  // WEBP: RIFF????WEBP (bytes 0-3 = "RIFF", bytes 8-11 = "WEBP")
+  if (
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) {
+    return { mime: 'image/webp', ext: 'webp' };
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,16 +147,22 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
       standby_media_path: string | null;
       standby_media_hash: string | null;
       standby_media_updated_at: string | null;
+      logo_path: string | null;
+      logo_hash: string | null;
+      logo_mime: string | null;
+      logo_updated_at: string | null;
     }>(`
       SELECT display_name, legal_name, nit, address, city, phone, email,
              standby_mode, standby_title, standby_subtitle,
-             standby_media_path, standby_media_hash, standby_media_updated_at
+             standby_media_path, standby_media_hash, standby_media_updated_at,
+             logo_path, logo_hash, logo_mime, logo_updated_at
       FROM clinic WHERE id = 1
     `);
     const c = r.rows[0];
     if (!c) return reply.code(503).send({ error: 'NOT_CONFIGURED' });
 
     const hasMedia = !!(c.standby_media_path && existsSync(c.standby_media_path));
+    const hasLogo  = !!(c.logo_path && existsSync(c.logo_path));
 
     return reply.send({
       display_name:     c.display_name,
@@ -131,6 +179,12 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
         has_media:        hasMedia,
         media_hash:       hasMedia ? c.standby_media_hash : null,
         media_updated_at: hasMedia ? c.standby_media_updated_at : null,
+      },
+      logo: {
+        has:        hasLogo,
+        hash:       hasLogo ? c.logo_hash : null,
+        mime:       hasLogo ? c.logo_mime : null,
+        updated_at: hasLogo ? c.logo_updated_at : null,
       },
     });
   });
@@ -304,6 +358,112 @@ export async function adminClinicRoutes(app: FastifyInstance): Promise<void> {
              standby_media_hash = NULL,
              standby_media_updated_at = NULL,
              standby_mode = 'mensaje',
+             updated_at = now()
+         WHERE id = 1`,
+      );
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ===========================================================================
+  // Logo de la clínica
+  // ===========================================================================
+
+  // ── PUT /admin/clinic/logo ────────────────────────────────────────────────
+  // Recibe un archivo multipart (PNG, JPG o WEBP, max 2 MB).
+  // Valida el tipo por magic bytes — el mimetype declarado no es confiable.
+  app.put(
+    '/admin/clinic/logo',
+    { preHandler: requireAdmin },
+    async (req, reply) => {
+      const data = await (req as any).file();
+      if (!data) {
+        return reply.code(400).send({ error: 'BAD_REQUEST', message: 'Se requiere un archivo.' });
+      }
+
+      // Leer el stream a Buffer con corte explícito en LOGO_MAX_BYTES
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      let tooLarge = false;
+
+      for await (const chunk of data.file) {
+        totalBytes += chunk.length;
+        if (totalBytes > LOGO_MAX_BYTES) {
+          tooLarge = true;
+          break;
+        }
+        chunks.push(chunk);
+      }
+
+      if (tooLarge) {
+        return reply.code(413).send({
+          error: 'FILE_TOO_LARGE',
+          message: `El logo supera el límite de ${Math.round(LOGO_MAX_BYTES / 1024 / 1024)} MB.`,
+        });
+      }
+
+      const buf = Buffer.concat(chunks);
+      const detected = detectImageMime(buf);
+      if (!detected) {
+        return reply.code(400).send({
+          error: 'INVALID_FILE_TYPE',
+          message: 'Tipo de archivo no permitido. Solo se aceptan PNG, JPG o WEBP.',
+        });
+      }
+
+      const { mime, ext } = detected;
+      const hash = sha256hex(buf);
+      const filePath = logoFilePath(ext);
+
+      // Borrar archivos previos de otras extensiones
+      await mkdir(uploadsDir(), { recursive: true });
+      for (const oldExt of LOGO_EXTS) {
+        const p = logoFilePath(oldExt);
+        if (p !== filePath && existsSync(p)) {
+          try { unlinkSync(p); } catch { /* ignorar */ }
+        }
+      }
+
+      const ws = createWriteStream(filePath);
+      await pipeline(
+        (async function* () { yield buf; })(),
+        ws,
+      );
+
+      await db.query(
+        `UPDATE clinic
+         SET logo_path = $1,
+             logo_hash = $2,
+             logo_mime = $3,
+             logo_updated_at = now(),
+             updated_at = now()
+         WHERE id = 1`,
+        [filePath, hash, mime],
+      );
+
+      logger.info({ ext, mime, bytes: buf.length, hash }, 'Clinic logo uploaded');
+      return reply.code(200).send({ ok: true, hash, bytes: buf.length, ext, mime });
+    },
+  );
+
+  // ── DELETE /admin/clinic/logo ─────────────────────────────────────────────
+  app.delete(
+    '/admin/clinic/logo',
+    { preHandler: requireAdmin },
+    async (_req, reply) => {
+      const r = await db.query<{ logo_path: string | null }>(
+        `SELECT logo_path FROM clinic WHERE id = 1`,
+      );
+      const p = r.rows[0]?.logo_path;
+      if (p && existsSync(p)) {
+        try { unlinkSync(p); } catch { /* ignorar */ }
+      }
+      await db.query(
+        `UPDATE clinic
+         SET logo_path = NULL,
+             logo_hash = NULL,
+             logo_mime = NULL,
+             logo_updated_at = NULL,
              updated_at = now()
          WHERE id = 1`,
       );

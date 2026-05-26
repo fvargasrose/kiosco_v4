@@ -91,6 +91,16 @@ class AdminApiClient {
     return this._fetch('/admin/clinic/standby-media', { method: 'DELETE' });
   }
 
+  async uploadClinicLogo(file) {
+    const form = new FormData();
+    form.append('file', file);
+    return this._fetch('/admin/clinic/logo', { method: 'PUT', body: form });
+  }
+
+  async deleteClinicLogo() {
+    return this._fetch('/admin/clinic/logo', { method: 'DELETE' });
+  }
+
   // ── Procedimientos / Tratamientos ─────────────────────────────────────────
   async getProcedures() {
     return this._fetch('/admin/procedures');

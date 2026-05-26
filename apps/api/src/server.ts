@@ -13,6 +13,7 @@ import sensible from '@fastify/sensible';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { createReadStream, existsSync } from 'node:fs';
 
 import { config } from './lib/config.js';
 import { logger } from './lib/logger.js';
@@ -104,6 +105,29 @@ export async function buildServer() {
       error: 'NOT_FOUND',
       path: request.url,
     });
+  });
+
+  // ----- Rutas públicas (sin auth ni licencia) -----
+  // El logo de la clínica se sirve aquí para que pueda verse en standby/headers
+  // incluso si la licencia está restringida o si el kiosco aún no se ha autenticado.
+  app.get('/public/clinic-logo', async (request, reply) => {
+    const r = await db.query<{ logo_path: string | null; logo_mime: string | null; logo_hash: string | null }>(
+      `SELECT logo_path, logo_mime, logo_hash FROM clinic WHERE id = 1`,
+    );
+    const row = r.rows[0];
+    if (!row?.logo_path || !existsSync(row.logo_path)) {
+      return reply.code(404).send({ error: 'NO_LOGO' });
+    }
+
+    const etag = row.logo_hash ? `"${row.logo_hash}"` : undefined;
+    if (etag && request.headers['if-none-match'] === etag) {
+      return reply.code(304).send();
+    }
+
+    reply.header('Content-Type', row.logo_mime ?? 'application/octet-stream');
+    reply.header('Cache-Control', 'public, max-age=300');
+    if (etag) reply.header('ETag', etag);
+    return reply.send(createReadStream(row.logo_path));
   });
 
   // ----- Rutas -----
