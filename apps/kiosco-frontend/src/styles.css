@@ -1472,6 +1472,135 @@ body {
   margin-top: 0.15rem;
 }
 
+/* Calendario mensual (paso 'date' del booking) */
+.calendar-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.calendar-month {
+  flex: 1 1 360px;
+  min-width: 280px;
+  max-width: 420px;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-month-header {
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: capitalize;
+  margin-bottom: 0.75rem;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.35rem 0;
+}
+
+.calendar-day {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background: #f8fafc;
+  border: 2px solid transparent;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.calendar-day[data-date]:hover,
+.calendar-day[data-date]:active {
+  background: #e0f2fe;
+  border-color: var(--color-primary);
+}
+
+.calendar-day--past {
+  background: transparent;
+  color: #cbd5e1;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.calendar-day--other-month {
+  background: transparent;
+  pointer-events: none;
+}
+
+.calendar-day--sunday {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.calendar-day--today {
+  border-color: var(--color-primary);
+  border-style: dashed;
+}
+
+.calendar-day--selected,
+.calendar-day--selected:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.calendar-day-num {
+  line-height: 1;
+}
+
+/* Calendario: portrait y pantallas angostas */
+@media (max-width: 800px) {
+  .calendar-wrap {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .calendar-month {
+    max-width: none;
+  }
+  .calendar-day {
+    font-size: 0.95rem;
+  }
+}
+
+@media (min-height: 1400px) and (orientation: portrait) {
+  .calendar-month {
+    padding: 1.25rem;
+  }
+  .calendar-day {
+    font-size: 1.15rem;
+  }
+  .calendar-month-header {
+    font-size: 1.2rem;
+  }
+}
+
 /* Grid de slots de hora */
 .slot-group {
   margin-bottom: 1.5rem;

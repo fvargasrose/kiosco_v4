@@ -26,8 +26,13 @@ import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 
 const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
-const DEFAULT_SEARCH_DAYS = 14;
 const MAX_FUTURE_DAYS = 90;
+const CALENDAR_MONTHS = 2; // mes actual + siguiente
+const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const MONTH_LABELS = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
 
 export function renderBooking(container, params, navigate) {
   if (!state.patient) {
@@ -315,39 +320,157 @@ function dentistCardHtml(d) {
 
 // ----- 4: Fecha -----
 
-function renderDateStep(container, selection, { next }) {
+async function renderDateStep(container, selection, { next }) {
   if (!selection.dentist) return next('branch');
   if (!selection.treatment) return next('treatment');
 
-  // Generamos 14 días al frente (saltando domingos por simplicidad — el server
-  // de todas formas filtra por disponibilidad real)
-  const dates = [];
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  cursor.setDate(cursor.getDate() + 1); // empezar mañana
-  while (dates.length < DEFAULT_SEARCH_DAYS) {
-    if (cursor.getDay() !== 0) {
-      dates.push(new Date(cursor));
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
+  // "Hoy" se trata como día pasado: el primer día seleccionable es mañana.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const minSelectable = new Date(today);
+  minSelectable.setDate(minSelectable.getDate() + 1);
+
+  const maxSelectable = new Date(today);
+  maxSelectable.setDate(maxSelectable.getDate() + MAX_FUTURE_DAYS);
 
   container.innerHTML = `
     <p class="subtitle">
       <strong>${escapeHtml(fullName(selection.dentist))}</strong> ·
-      Selecciona el día:
+      Selecciona el día (${selection.treatment.duration_minutes} min):
     </p>
-    <div class="date-grid">
-      ${dates.map(dateCardHtml).join('')}
+    <div class="calendar-wrap" id="calendar-wrap"></div>
+  `;
+  const wrap = container.querySelector('#calendar-wrap');
+
+  let busy = false;
+  const onSelectDate = async (isoDate) => {
+    if (busy) return;
+    busy = true;
+
+    // Marcado visual inmediato
+    selection.date = isoDate;
+    repaint();
+
+    try {
+      const res = await api.getSlots({
+        dentistId: selection.dentist.id,
+        branchId: selection.branch.id,
+        from: isoDate,
+        to: isoDate,
+        duration: selection.treatment.duration_minutes,
+      });
+      const slots = res.data ?? [];
+      if (slots.length === 0) {
+        toast('Sin disponibilidad este día, elige otro', 'warning');
+        selection.date = null;
+        repaint();
+        busy = false;
+        return;
+      }
+      next('slot');
+    } catch (err) {
+      selection.date = null;
+      repaint();
+      busy = false;
+      if (err instanceof ApiError && err.status === 401) {
+        toast('Tu sesión expiró.', 'error');
+      } else {
+        toast('No pudimos consultar la disponibilidad. Intenta de nuevo.', 'error');
+      }
+    }
+  };
+
+  const repaint = () => {
+    const months = [];
+    for (let i = 0; i < CALENDAR_MONTHS; i += 1) {
+      months.push(renderCalendar(i, today, minSelectable, maxSelectable, selection.date));
+    }
+    wrap.innerHTML = months.join('');
+    wrap.querySelectorAll('.calendar-day[data-date]').forEach((cell) => {
+      cell.addEventListener('click', () => onSelectDate(cell.dataset.date));
+    });
+  };
+
+  repaint();
+}
+
+/**
+ * Renderiza un mes en cuadrícula 7 cols (L M M J V S D).
+ * - monthOffset: 0 = mes actual, 1 = siguiente, etc.
+ * - today, minSelectable, maxSelectable: límites de selección.
+ * - selectedIso: 'YYYY-MM-DD' actualmente marcado, o null.
+ *
+ * Devuelve HTML. Solo las celdas seleccionables traen data-date.
+ */
+function renderCalendar(monthOffset, today, minSelectable, maxSelectable, selectedIso) {
+  const ref = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+  const year = ref.getFullYear();
+  const month = ref.getMonth();
+
+  // Empezamos el grid en lunes. getDay(): 0=Dom, 1=Lun, ..., 6=Sab
+  // Queremos que Dom (0) caiga en la última columna; Lun (1) en la primera.
+  const firstWeekday = ref.getDay();
+  const leadingBlanks = firstWeekday === 0 ? 6 : firstWeekday - 1;
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7;
+
+  const cells = [];
+  for (let i = 0; i < totalCells; i += 1) {
+    const dayNum = i - leadingBlanks + 1;
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    if (!inMonth) {
+      cells.push(`<div class="calendar-day calendar-day--other-month"></div>`);
+      continue;
+    }
+    const cellDate = new Date(year, month, dayNum);
+    const isoDate = isoFromLocal(cellDate);
+    const dow = cellDate.getDay(); // 0=Dom
+    const isSunday = dow === 0;
+    const isPast = cellDate < minSelectable;
+    const isBeyond = cellDate > maxSelectable;
+    const isToday = cellDate.getTime() === today.getTime();
+    const isSelected = isoDate === selectedIso;
+
+    const classes = ['calendar-day'];
+    if (isPast || isBeyond) classes.push('calendar-day--past');
+    if (isSunday && !isPast && !isBeyond) classes.push('calendar-day--sunday');
+    if (isToday) classes.push('calendar-day--today');
+    if (isSelected) classes.push('calendar-day--selected');
+
+    const clickable = !isPast && !isBeyond && !isSunday;
+    const attrs = clickable
+      ? `data-date="${isoDate}" role="button" tabindex="0"`
+      : 'aria-disabled="true"';
+
+    cells.push(`
+      <div class="${classes.join(' ')}" ${attrs}>
+        <span class="calendar-day-num">${dayNum}</span>
+      </div>
+    `);
+  }
+
+  return `
+    <div class="calendar-month">
+      <div class="calendar-month-header">
+        ${escapeHtml(MONTH_LABELS[month])} ${year}
+      </div>
+      <div class="calendar-weekdays">
+        ${WEEKDAY_LABELS.map((w) => `<div class="calendar-weekday">${w}</div>`).join('')}
+      </div>
+      <div class="calendar-grid">
+        ${cells.join('')}
+      </div>
     </div>
   `;
+}
 
-  container.querySelectorAll('.date-card').forEach((card) => {
-    card.addEventListener('click', () => {
-      selection.date = card.dataset.date;
-      next('slot');
-    });
-  });
+/** YYYY-MM-DD en zona local (Date.toISOString usa UTC y puede saltar día). */
+function isoFromLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // ----- 5: Slot -----
@@ -580,20 +703,6 @@ function optionCardHtml({ id, title, subtitle, meta, icon }) {
         ${meta ? `<div class="option-card-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
       <div class="option-card-arrow">›</div>
-    </button>
-  `;
-}
-
-function dateCardHtml(date) {
-  const iso = date.toISOString().slice(0, 10);
-  const dow = date.toLocaleDateString('es-CO', { weekday: 'short' });
-  const day = date.getDate();
-  const month = date.toLocaleDateString('es-CO', { month: 'short' });
-  return `
-    <button type="button" class="date-card" data-date="${iso}">
-      <div class="date-card-dow">${escapeHtml(dow)}</div>
-      <div class="date-card-day">${day}</div>
-      <div class="date-card-month">${escapeHtml(month)}</div>
     </button>
   `;
 }
