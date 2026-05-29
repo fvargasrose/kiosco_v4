@@ -85,7 +85,7 @@ export async function healthRoute(app: FastifyInstance): Promise<void> {
         wompi: features.wompiConfigured,
         dentalink: features.dentalinkConfigured,
         twilio: features.twilioConfigured,
-        resend: features.resendConfigured,
+        smtp: features.smtpConfigured,
         licenseDevMode: config.LICENSE_DEV_MODE,
         mockExternalServices: config.DEV_MOCK_EXTERNAL_SERVICES,
       },

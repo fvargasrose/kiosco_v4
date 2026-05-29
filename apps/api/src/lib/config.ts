@@ -81,9 +81,11 @@ const ConfigSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
 
-  RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM_EMAIL: z.string().email().optional(),
-  RESEND_REPLY_TO_EMAIL: z.string().email().optional(),
+  SMTP_SERVER: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SENDER_EMAIL: z.string().email().optional(),
+  SENDER_NAME: z.string().optional(),
+  SENDER_PASSWORD: z.string().optional(),
 
   // -------- Observabilidad --------
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
@@ -151,5 +153,5 @@ export const features = {
     config.TWILIO_AUTH_TOKEN &&
     config.TWILIO_FROM_NUMBER
   ),
-  resendConfigured: !!(config.RESEND_API_KEY && config.RESEND_FROM_EMAIL),
+  smtpConfigured: !!(config.SMTP_SERVER && config.SENDER_EMAIL && config.SENDER_PASSWORD),
 } as const;

@@ -1,6 +1,6 @@
 /**
  * =============================================================================
- * Email Sender - Resend adapter con modo mock para desarrollo
+ * Email Sender - SMTP adapter con modo mock para desarrollo
  * =============================================================================
  */
 
@@ -44,17 +44,23 @@ class MockEmailSender implements EmailSender {
   }
 }
 
-class ResendEmailSender implements EmailSender {
-  private client: any = null;
+class SmtpEmailSender implements EmailSender {
+  private transporter: any = null;
 
-  private async getClient(): Promise<any> {
-    if (this.client) return this.client;
-    const resendMod = await import('resend').catch(() => null);
-    if (!resendMod) {
-      throw new Error('Módulo "resend" no instalado. Run: npm install resend');
-    }
-    this.client = new resendMod.Resend(config.RESEND_API_KEY);
-    return this.client;
+  private async getTransporter(): Promise<any> {
+    if (this.transporter) return this.transporter;
+
+    const nodemailer = await import('nodemailer');
+    this.transporter = nodemailer.createTransport({
+      host: config.SMTP_SERVER,
+      port: config.SMTP_PORT,
+      secure: config.SMTP_PORT === 465,
+      auth: {
+        user: config.SENDER_EMAIL,
+        pass: config.SENDER_PASSWORD,
+      },
+    });
+    return this.transporter;
   }
 
   async send(input: {
@@ -63,25 +69,25 @@ class ResendEmailSender implements EmailSender {
     html: string;
     text?: string;
   }): Promise<{ id: string }> {
-    const client = await this.getClient();
-    const result = await client.emails.send({
-      from: config.RESEND_FROM_EMAIL,
+    const transporter = await this.getTransporter();
+
+    const from = config.SENDER_NAME
+      ? `${config.SENDER_NAME} <${config.SENDER_EMAIL}>`
+      : config.SENDER_EMAIL;
+
+    const info = await transporter.sendMail({
+      from,
       to: input.to,
       subject: input.subject,
       html: input.html,
-      text: input.text,
-      ...(config.RESEND_REPLY_TO_EMAIL && { reply_to: config.RESEND_REPLY_TO_EMAIL }),
+      ...(input.text && { text: input.text }),
     });
 
-    if (result.error) {
-      throw new Error(`Resend error: ${JSON.stringify(result.error)}`);
-    }
-
     logger.info(
-      { to: maskEmail(input.to), id: result.data?.id, channel: 'email' },
-      'Email sent via Resend',
+      { to: maskEmail(input.to), messageId: info.messageId, channel: 'email' },
+      'Email sent via SMTP',
     );
-    return { id: result.data?.id ?? 'unknown' };
+    return { id: info.messageId ?? `smtp-${Date.now()}` };
   }
 }
 
@@ -90,12 +96,12 @@ let _instance: EmailSender | null = null;
 export function getEmailSender(): EmailSender {
   if (_instance) return _instance;
 
-  if (config.DEV_MOCK_EXTERNAL_SERVICES || !features.resendConfigured) {
+  if (config.DEV_MOCK_EXTERNAL_SERVICES || !features.smtpConfigured) {
     _instance = new MockEmailSender();
     logger.info('Email: using MockEmailSender');
   } else {
-    _instance = new ResendEmailSender();
-    logger.info('Email: using ResendEmailSender');
+    _instance = new SmtpEmailSender();
+    logger.info(`Email: using SmtpEmailSender (${config.SMTP_SERVER}:${config.SMTP_PORT})`);
   }
 
   return _instance;
