@@ -554,3 +554,126 @@ body.theme-apple {
   .ak-page-title { font-size: 22px; }
   .ak-toggle { display: none; }
 }
+
+/* ============================================================================
+   Calendario de booking — 2 meses, grid 7 columnas (tema apple)
+   Portado desde styles.css; colores adaptados a las variables apple.
+   ============================================================================ */
+
+.calendar-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.calendar-month {
+  flex: 1 1 360px;
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--card-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.calendar-month-header {
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text1);
+  text-transform: capitalize;
+  margin-bottom: 0.75rem;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text3);
+  padding: 0.35rem 0;
+}
+
+.calendar-day {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text1);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.calendar-day[data-date] {
+  cursor: pointer;
+  background: var(--bg);
+  border: 2px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.calendar-day[data-date]:hover,
+.calendar-day[data-date]:active {
+  background: rgba(0, 113, 227, 0.1);
+  border-color: var(--accent);
+}
+
+.calendar-day--past {
+  background: transparent;
+  color: #c7c7cc;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.calendar-day--other-month {
+  background: transparent;
+  pointer-events: none;
+}
+
+.calendar-day--sunday {
+  background: transparent;
+  color: var(--color-danger);
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.calendar-day--today {
+  border: 2px dashed var(--text3);
+}
+
+.calendar-day--selected,
+.calendar-day--selected:hover {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
+}
+
+.calendar-day-num {
+  line-height: 1;
+}
+
+@media (max-width: 800px) {
+  .calendar-wrap {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .calendar-month {
+    max-width: none;
+  }
+  .calendar-day {
+    font-size: 0.95rem;
+  }
+}

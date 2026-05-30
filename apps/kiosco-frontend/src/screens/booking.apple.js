@@ -4,9 +4,16 @@ import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { renderAppleShell } from './shared/shell.apple.js';
+import { buildTreatmentList, DEFAULT_TREATMENT_ID } from './shared/treatment-list.js';
 
-const STEPS = ['branch', 'dentist', 'date', 'slot', 'confirm'];
-const DEFAULT_SEARCH_DAYS = 14;
+const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
+const MAX_FUTURE_DAYS = 90;
+const CALENDAR_MONTHS = 2; // mes actual + siguiente
+const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const MONTH_LABELS = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
 
 export function renderBookingApple(container, _params, navigate) {
   if (!state.patient) {
@@ -17,6 +24,7 @@ export function renderBookingApple(container, _params, navigate) {
   const selection = {
     branch: null,
     dentist: null,
+    treatment: null, // { id, name, duration_minutes, description? }
     date: null,
     slot: null,
     notas: '',
@@ -66,7 +74,7 @@ export function renderBookingApple(container, _params, navigate) {
 // ─── Step bar ────────────────────────────────────────────────────────────────
 
 function renderStepBar(el, currentStep) {
-  const labels = { branch: 'Sede', dentist: 'Profesional', date: 'Fecha', slot: 'Hora', confirm: 'Confirmar' };
+  const labels = { branch: 'Sede', dentist: 'Profesional', treatment: 'Tratamiento', date: 'Fecha', slot: 'Hora', confirm: 'Confirmar' };
   const idx = STEPS.indexOf(currentStep);
   el.innerHTML = STEPS.map((s, i) => {
     const cls = i < idx ? 'ak-step-item done' : i === idx ? 'ak-step-item active' : 'ak-step-item';
@@ -77,7 +85,7 @@ function renderStepBar(el, currentStep) {
 // ─── Step dispatcher ─────────────────────────────────────────────────────────
 
 function renderStep(main, step, selection, actions) {
-  const subtitle = { branch: 'Selecciona la sede', dentist: 'Selecciona el profesional', date: 'Elige el día', slot: 'Elige la hora', confirm: 'Confirma tu cita' };
+  const subtitle = { branch: 'Selecciona la sede', dentist: 'Selecciona el profesional', treatment: 'Selecciona el tratamiento', date: 'Elige el día', slot: 'Elige la hora', confirm: 'Confirma tu cita' };
   const subtitleEl = main.querySelector('#booking-subtitle');
   if (subtitleEl) subtitleEl.textContent = subtitle[step] ?? '';
 
@@ -86,9 +94,10 @@ function renderStep(main, step, selection, actions) {
 
   const content = main.querySelector('#booking-content');
   switch (step) {
-    case 'branch':  return renderBranchStep(content, selection, actions);
-    case 'dentist': return renderDentistStep(content, selection, actions);
-    case 'date':    return renderDateStep(content, selection, actions);
+    case 'branch':    return renderBranchStep(content, selection, actions);
+    case 'dentist':   return renderDentistStep(content, selection, actions);
+    case 'treatment': return renderTreatmentStep(content, selection, actions);
+    case 'date':      return renderDateStep(content, selection, actions);
     case 'slot':    return renderSlotStep(content, selection, actions);
     case 'confirm': return renderConfirmStep(content, selection, actions);
   }
@@ -182,7 +191,7 @@ async function renderDentistStep(container, selection, { next }) {
       el.addEventListener('click', () => {
         const id = el.dataset.id;
         selection.dentist = dentists.find((d) => String(d.id) === id);
-        next('date');
+        next('treatment');
       });
     });
   } catch (err) {
@@ -190,58 +199,216 @@ async function renderDentistStep(container, selection, { next }) {
   }
 }
 
-// ─── 3: Fecha ────────────────────────────────────────────────────────────────
+// ─── 3: Tratamiento ───────────────────────────────────────────────────────────
 
-function renderDateStep(container, selection, { next }) {
+function renderTreatmentStep(container, selection, { next }) {
   if (!selection.dentist) return next('branch');
 
-  const dates = [];
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  cursor.setDate(cursor.getDate() + 1);
-  while (dates.length < DEFAULT_SEARCH_DAYS) {
-    if (cursor.getDay() !== 0) dates.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
+  // Fallback "Consulta general" si no hay procedimientos configurados — la
+  // lógica vive en el módulo compartido treatment-list.js (testeable en aislamiento).
+  const treatments = buildTreatmentList(
+    state.config?.procedures,
+    state.config?.duracion_cita_minutos,
+  );
 
-  container.innerHTML = `
-    <div class="ak-date-grid">
-      ${dates.map((date) => {
-        const iso   = date.toISOString().slice(0, 10);
-        const dow   = date.toLocaleDateString('es-CO', { weekday: 'short' });
-        const day   = date.getDate();
-        const month = date.toLocaleDateString('es-CO', { month: 'short' }).replace('.', '');
-        const isSelected = selection.date === iso;
-        return `
-          <button type="button" class="ak-date-card${isSelected ? ' selected' : ''}" data-date="${iso}">
-            <div class="ak-date-dow">${escapeHtml(dow)}</div>
-            <div class="ak-date-num">${day}</div>
-            <div class="ak-date-mon">${escapeHtml(month)}</div>
-          </button>
-        `;
-      }).join('')}
-    </div>
-  `;
+  container.innerHTML = treatments.map(treatmentCardHtml).join('');
 
-  container.querySelectorAll('.ak-date-card').forEach((card) => {
+  container.querySelectorAll('.ak-card[data-id]').forEach((card) => {
     card.addEventListener('click', () => {
-      selection.date = card.dataset.date;
-      next('slot');
+      const id = card.dataset.id;
+      selection.treatment = treatments.find((t) => String(t.id) === id);
+      // Mejora sobre booking.js (decisión Prompt 1): al elegir/cambiar el
+      // tratamiento, invalidar la fecha/hora previas para que la duración del
+      // nuevo tratamiento se respete al recalcular disponibilidad.
+      selection.date = null;
+      selection.slot = null;
+      next('date');
     });
   });
+}
+
+function treatmentCardHtml(t) {
+  const description = t.description
+    ? `<div style="font-size:13px;color:var(--text2);margin-top:2px;">${escapeHtml(t.description)}</div>`
+    : '';
+  return `
+    <button type="button" class="ak-card" data-id="${escapeHtml(String(t.id))}"
+            style="display:flex;align-items:center;gap:16px;width:100%;text-align:left;cursor:pointer;margin-bottom:12px;">
+      <div style="width:48px;height:48px;border-radius:14px;background:rgba(0,113,227,.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <i class="ti ti-dental" style="font-size:22px;color:var(--accent);"></i>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:15px;color:var(--text1);">${escapeHtml(t.name)}</div>
+        ${description}
+      </div>
+      <div style="font-size:13px;font-weight:500;color:var(--accent);background:rgba(0,113,227,.1);padding:4px 10px;border-radius:10px;white-space:nowrap;">${t.duration_minutes} min</div>
+    </button>
+  `;
+}
+
+// ─── 4: Fecha ────────────────────────────────────────────────────────────────
+
+async function renderDateStep(container, selection, { next }) {
+  if (!selection.dentist) return next('branch');
+  if (!selection.treatment) return next('treatment');
+
+  // "Hoy" se trata como día pasado: el primer día seleccionable es mañana.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const minSelectable = new Date(today);
+  minSelectable.setDate(minSelectable.getDate() + 1);
+
+  const maxSelectable = new Date(today);
+  maxSelectable.setDate(maxSelectable.getDate() + MAX_FUTURE_DAYS);
+
+  container.innerHTML = `<div class="calendar-wrap" id="calendar-wrap"></div>`;
+  const wrap = container.querySelector('#calendar-wrap');
+
+  let busy = false;
+  const onSelectDate = async (isoDate) => {
+    if (busy) return;
+    busy = true;
+
+    // Marcado visual inmediato
+    selection.date = isoDate;
+    repaint();
+
+    try {
+      const res = await api.getSlots({
+        dentistId: selection.dentist.id,
+        branchId: selection.branch.id,
+        from: isoDate,
+        to: isoDate,
+        duration: selection.treatment.duration_minutes,
+      });
+      const slots = res.data ?? [];
+      if (slots.length === 0) {
+        toast('Sin disponibilidad este día, elige otro', 'warning');
+        selection.date = null;
+        repaint();
+        busy = false;
+        return;
+      }
+      next('slot');
+    } catch (err) {
+      selection.date = null;
+      repaint();
+      busy = false;
+      if (err instanceof ApiError && err.status === 401) {
+        toast('Tu sesión expiró.', 'error');
+      } else {
+        toast('No pudimos consultar la disponibilidad. Intenta de nuevo.', 'error');
+      }
+    }
+  };
+
+  const repaint = () => {
+    const months = [];
+    for (let i = 0; i < CALENDAR_MONTHS; i += 1) {
+      months.push(renderCalendar(i, today, minSelectable, maxSelectable, selection.date));
+    }
+    wrap.innerHTML = months.join('');
+    wrap.querySelectorAll('.calendar-day[data-date]').forEach((cell) => {
+      cell.addEventListener('click', () => onSelectDate(cell.dataset.date));
+    });
+  };
+
+  repaint();
+}
+
+/**
+ * Renderiza un mes en cuadrícula 7 cols (L M M J V S D).
+ * - monthOffset: 0 = mes actual, 1 = siguiente, etc.
+ * - today, minSelectable, maxSelectable: límites de selección.
+ * - selectedIso: 'YYYY-MM-DD' actualmente marcado, o null.
+ *
+ * Devuelve HTML. Solo las celdas seleccionables traen data-date.
+ */
+function renderCalendar(monthOffset, today, minSelectable, maxSelectable, selectedIso) {
+  const ref = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+  const year = ref.getFullYear();
+  const month = ref.getMonth();
+
+  // Empezamos el grid en lunes. getDay(): 0=Dom, 1=Lun, ..., 6=Sab
+  // Queremos que Dom (0) caiga en la última columna; Lun (1) en la primera.
+  const firstWeekday = ref.getDay();
+  const leadingBlanks = firstWeekday === 0 ? 6 : firstWeekday - 1;
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7;
+
+  const cells = [];
+  for (let i = 0; i < totalCells; i += 1) {
+    const dayNum = i - leadingBlanks + 1;
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    if (!inMonth) {
+      cells.push(`<div class="calendar-day calendar-day--other-month"></div>`);
+      continue;
+    }
+    const cellDate = new Date(year, month, dayNum);
+    const isoDate = isoFromLocal(cellDate);
+    const dow = cellDate.getDay(); // 0=Dom
+    const isSunday = dow === 0;
+    const isPast = cellDate < minSelectable;
+    const isBeyond = cellDate > maxSelectable;
+    const isToday = cellDate.getTime() === today.getTime();
+    const isSelected = isoDate === selectedIso;
+
+    const classes = ['calendar-day'];
+    if (isPast || isBeyond) classes.push('calendar-day--past');
+    if (isSunday && !isPast && !isBeyond) classes.push('calendar-day--sunday');
+    if (isToday) classes.push('calendar-day--today');
+    if (isSelected) classes.push('calendar-day--selected');
+
+    const clickable = !isPast && !isBeyond && !isSunday;
+    const attrs = clickable
+      ? `data-date="${isoDate}" role="button" tabindex="0"`
+      : 'aria-disabled="true"';
+
+    cells.push(`
+      <div class="${classes.join(' ')}" ${attrs}>
+        <span class="calendar-day-num">${dayNum}</span>
+      </div>
+    `);
+  }
+
+  return `
+    <div class="calendar-month">
+      <div class="calendar-month-header">
+        ${escapeHtml(MONTH_LABELS[month])} ${year}
+      </div>
+      <div class="calendar-weekdays">
+        ${WEEKDAY_LABELS.map((w) => `<div class="calendar-weekday">${w}</div>`).join('')}
+      </div>
+      <div class="calendar-grid">
+        ${cells.join('')}
+      </div>
+    </div>
+  `;
+}
+
+/** YYYY-MM-DD en zona local (Date.toISOString usa UTC y puede saltar día). */
+function isoFromLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // ─── 4: Slot ─────────────────────────────────────────────────────────────────
 
 async function renderSlotStep(container, selection, { next }) {
   if (!selection.date) return next('date');
+  if (!selection.treatment) return next('treatment');
   container.innerHTML = spinner({ text: 'Cargando horarios...' });
 
   try {
     const res = await api.getSlots({
       dentistId: selection.dentist.id,
+      branchId: selection.branch.id,
       from: selection.date,
       to: selection.date,
+      duration: selection.treatment.duration_minutes,
     });
     const slots = res.data ?? [];
 
@@ -298,7 +465,7 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
 
   const dentistName = `${selection.dentist.nombre} ${selection.dentist.apellido ?? ''}`.trim();
   const fullDate = formatLongDate(selection.date);
-  const duracion = selection.slot.duracion_minutos ?? 30;
+  const duracion = selection.treatment?.duration_minutes ?? selection.slot.duracion_minutos ?? 30;
 
   container.innerHTML = `
     <div class="ak-summary">
@@ -320,6 +487,12 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
         <div class="ak-summary-row">
           <div class="ak-summary-label">Especialidad</div>
           <div class="ak-summary-value">${escapeHtml(selection.dentist.especialidad)}</div>
+        </div>
+      ` : ''}
+      ${selection.treatment ? `
+        <div class="ak-summary-row">
+          <div class="ak-summary-label"><i class="ti ti-dental"></i> Tratamiento</div>
+          <div class="ak-summary-value">${escapeHtml(selection.treatment.name)} (${selection.treatment.duration_minutes} min)</div>
         </div>
       ` : ''}
       <div class="ak-summary-row">
@@ -378,6 +551,10 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
         horaInicio: selection.slot.hora_inicio,
         horaFin:    selection.slot.hora_fin,
         notas:      selection.notas || undefined,
+        treatmentName:
+          selection.treatment && selection.treatment.id !== DEFAULT_TREATMENT_ID
+            ? selection.treatment.name
+            : undefined,
       });
 
       showModal({
@@ -426,10 +603,11 @@ function renderStepError(container, err) {
 
 function clearForwardSelections(selection, fromStep) {
   const idx = STEPS.indexOf(fromStep);
-  if (idx <= STEPS.indexOf('dentist') - 1) selection.dentist = null;
-  if (idx <= STEPS.indexOf('date')    - 1) selection.date    = null;
-  if (idx <= STEPS.indexOf('slot')    - 1) selection.slot    = null;
-  if (idx <= STEPS.indexOf('confirm') - 1) selection.notas   = '';
+  if (idx <= STEPS.indexOf('dentist')   - 1) selection.dentist   = null;
+  if (idx <= STEPS.indexOf('treatment') - 1) selection.treatment = null;
+  if (idx <= STEPS.indexOf('date')      - 1) selection.date      = null;
+  if (idx <= STEPS.indexOf('slot')      - 1) selection.slot      = null;
+  if (idx <= STEPS.indexOf('confirm')   - 1) selection.notas     = '';
 }
 
 function formatLongDate(yyyymmdd) {
