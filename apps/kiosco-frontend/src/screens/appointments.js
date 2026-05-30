@@ -226,6 +226,10 @@ async function doCancelAppointment(apt, refreshList) {
         body =
           err.body?.message ??
           'Es posible que ya esté cancelada, ya haya sido atendida, o que el horario haya pasado.';
+      } else if (err.status === 400) {
+        title = 'No se pudo cancelar';
+        body =
+          'El sistema de gestión rechazó la operación. Por favor acude a recepción.';
       } else if (err.status === 404) {
         title = 'Cita no encontrada';
         body = 'No pudimos encontrar esta cita. Refresca la lista e intenta de nuevo.';
