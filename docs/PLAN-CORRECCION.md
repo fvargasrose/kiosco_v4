@@ -1,10 +1,10 @@
 # Plan de corrección — DentalKiosco (S1–S4)
 
-> **ESTADO DE EJECUCIÓN (2026-05-30):** Prompts **1, 2, 3, 4, 5, 6, 7 y 9 → HECHOS**
-> (enfoque (A) aprobado). Suite: API 239/239, frontend 4/4 (vitest), builds OK.
-> El **Prompt 8** (fast-follow P1: extraer el flujo de booking a un módulo compartido
-> `booking-flow.js`) queda **PENDIENTE** para una sesión futura — primer paso ya dado al
-> extraer la decisión de fallback a `shared/treatment-list.js`.
+> **ESTADO DE EJECUCIÓN (2026-05-30):** Prompts **1–9 → HECHOS** (enfoque (A) aprobado).
+> Suite: API 239/239, frontend 4/4 (vitest), builds OK. El **Prompt 8** (fast-follow P1)
+> se completó: el flujo de booking vive ahora en `shared/booking-flow.js`, consumido por
+> `booking.js` y `booking.apple.js`; cada tema solo aporta markup/clases/estilos.
+> Ver `docs/REPORTE-CIERRE.md` para el cierre completo.
 
 > **Fuente de verdad:** `docs/AUDITORIA.md` (Etapas 1–5). Este archivo NO re-deriva hallazgos:
 > los condensa y los convierte en **prompts correctivos copiables** para sesiones futuras que SÍ

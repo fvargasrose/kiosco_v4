@@ -4,16 +4,16 @@ import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { renderAppleShell } from './shared/shell.apple.js';
-import { buildTreatmentList, DEFAULT_TREATMENT_ID } from './shared/treatment-list.js';
-
-const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
-const MAX_FUTURE_DAYS = 90;
-const CALENDAR_MONTHS = 2; // mes actual + siguiente
-const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-const MONTH_LABELS = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-];
+import {
+  STEPS,
+  clearForwardSelections,
+  getDateBounds,
+  renderCalendar,
+  CALENDAR_MONTHS,
+  buildSlotsParams,
+  buildBookingParams,
+  buildTreatmentList,
+} from './shared/booking-flow.js';
 
 export function renderBookingApple(container, _params, navigate) {
   if (!state.patient) {
@@ -252,14 +252,7 @@ async function renderDateStep(container, selection, { next }) {
   if (!selection.dentist) return next('branch');
   if (!selection.treatment) return next('treatment');
 
-  // "Hoy" se trata como día pasado: el primer día seleccionable es mañana.
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const minSelectable = new Date(today);
-  minSelectable.setDate(minSelectable.getDate() + 1);
-
-  const maxSelectable = new Date(today);
-  maxSelectable.setDate(maxSelectable.getDate() + MAX_FUTURE_DAYS);
+  const { today, minSelectable, maxSelectable } = getDateBounds();
 
   container.innerHTML = `<div class="calendar-wrap" id="calendar-wrap"></div>`;
   const wrap = container.querySelector('#calendar-wrap');
@@ -274,13 +267,7 @@ async function renderDateStep(container, selection, { next }) {
     repaint();
 
     try {
-      const res = await api.getSlots({
-        dentistId: selection.dentist.id,
-        branchId: selection.branch.id,
-        from: isoDate,
-        to: isoDate,
-        duration: selection.treatment.duration_minutes,
-      });
+      const res = await api.getSlots(buildSlotsParams(selection, isoDate, isoDate));
       const slots = res.data ?? [];
       if (slots.length === 0) {
         toast('Sin disponibilidad este día, elige otro', 'warning');
@@ -316,85 +303,6 @@ async function renderDateStep(container, selection, { next }) {
   repaint();
 }
 
-/**
- * Renderiza un mes en cuadrícula 7 cols (L M M J V S D).
- * - monthOffset: 0 = mes actual, 1 = siguiente, etc.
- * - today, minSelectable, maxSelectable: límites de selección.
- * - selectedIso: 'YYYY-MM-DD' actualmente marcado, o null.
- *
- * Devuelve HTML. Solo las celdas seleccionables traen data-date.
- */
-function renderCalendar(monthOffset, today, minSelectable, maxSelectable, selectedIso) {
-  const ref = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
-  const year = ref.getFullYear();
-  const month = ref.getMonth();
-
-  // Empezamos el grid en lunes. getDay(): 0=Dom, 1=Lun, ..., 6=Sab
-  // Queremos que Dom (0) caiga en la última columna; Lun (1) en la primera.
-  const firstWeekday = ref.getDay();
-  const leadingBlanks = firstWeekday === 0 ? 6 : firstWeekday - 1;
-
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7;
-
-  const cells = [];
-  for (let i = 0; i < totalCells; i += 1) {
-    const dayNum = i - leadingBlanks + 1;
-    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
-    if (!inMonth) {
-      cells.push(`<div class="calendar-day calendar-day--other-month"></div>`);
-      continue;
-    }
-    const cellDate = new Date(year, month, dayNum);
-    const isoDate = isoFromLocal(cellDate);
-    const dow = cellDate.getDay(); // 0=Dom
-    const isSunday = dow === 0;
-    const isPast = cellDate < minSelectable;
-    const isBeyond = cellDate > maxSelectable;
-    const isToday = cellDate.getTime() === today.getTime();
-    const isSelected = isoDate === selectedIso;
-
-    const classes = ['calendar-day'];
-    if (isPast || isBeyond) classes.push('calendar-day--past');
-    if (isSunday && !isPast && !isBeyond) classes.push('calendar-day--sunday');
-    if (isToday) classes.push('calendar-day--today');
-    if (isSelected) classes.push('calendar-day--selected');
-
-    const clickable = !isPast && !isBeyond && !isSunday;
-    const attrs = clickable
-      ? `data-date="${isoDate}" role="button" tabindex="0"`
-      : 'aria-disabled="true"';
-
-    cells.push(`
-      <div class="${classes.join(' ')}" ${attrs}>
-        <span class="calendar-day-num">${dayNum}</span>
-      </div>
-    `);
-  }
-
-  return `
-    <div class="calendar-month">
-      <div class="calendar-month-header">
-        ${escapeHtml(MONTH_LABELS[month])} ${year}
-      </div>
-      <div class="calendar-weekdays">
-        ${WEEKDAY_LABELS.map((w) => `<div class="calendar-weekday">${w}</div>`).join('')}
-      </div>
-      <div class="calendar-grid">
-        ${cells.join('')}
-      </div>
-    </div>
-  `;
-}
-
-/** YYYY-MM-DD en zona local (Date.toISOString usa UTC y puede saltar día). */
-function isoFromLocal(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 // ─── 4: Slot ─────────────────────────────────────────────────────────────────
 
 async function renderSlotStep(container, selection, { next }) {
@@ -403,13 +311,7 @@ async function renderSlotStep(container, selection, { next }) {
   container.innerHTML = spinner({ text: 'Cargando horarios...' });
 
   try {
-    const res = await api.getSlots({
-      dentistId: selection.dentist.id,
-      branchId: selection.branch.id,
-      from: selection.date,
-      to: selection.date,
-      duration: selection.treatment.duration_minutes,
-    });
+    const res = await api.getSlots(buildSlotsParams(selection, selection.date, selection.date));
     const slots = res.data ?? [];
 
     if (slots.length === 0) {
@@ -544,18 +446,7 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
     selection.notas = notasInput.value.trim();
 
     try {
-      await api.createBookingAppointment({
-        dentistId: selection.dentist.id,
-        branchId:  selection.branch.id,
-        fecha:      selection.date,
-        horaInicio: selection.slot.hora_inicio,
-        horaFin:    selection.slot.hora_fin,
-        notas:      selection.notas || undefined,
-        treatmentName:
-          selection.treatment && selection.treatment.id !== DEFAULT_TREATMENT_ID
-            ? selection.treatment.name
-            : undefined,
-      });
+      await api.createBookingAppointment(buildBookingParams(selection));
 
       showModal({
         icon: '✅',
@@ -599,15 +490,6 @@ function renderStepError(container, err) {
       msg = 'El sistema de gestión está temporalmente fuera de línea.';
   }
   container.innerHTML = `<div class="alert alert-error">${escapeHtml(msg)}</div>`;
-}
-
-function clearForwardSelections(selection, fromStep) {
-  const idx = STEPS.indexOf(fromStep);
-  if (idx <= STEPS.indexOf('dentist')   - 1) selection.dentist   = null;
-  if (idx <= STEPS.indexOf('treatment') - 1) selection.treatment = null;
-  if (idx <= STEPS.indexOf('date')      - 1) selection.date      = null;
-  if (idx <= STEPS.indexOf('slot')      - 1) selection.slot      = null;
-  if (idx <= STEPS.indexOf('confirm')   - 1) selection.notas     = '';
 }
 
 function formatLongDate(yyyymmdd) {
