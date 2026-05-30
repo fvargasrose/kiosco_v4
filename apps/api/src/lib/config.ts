@@ -76,6 +76,9 @@ const ConfigSchema = z.object({
 
   DENTALINK_TOKEN: z.string().optional(),
   DENTALINK_API_URL: z.string().url().default('https://api.dentalink.healthatom.com'),
+  // Override opcional del id_estado de "Cancelada" por clínica. Si se define,
+  // tiene prioridad sobre el descubrimiento por nombre en getCancelEstadoId.
+  DENTALINK_CANCEL_ESTADO_ID: z.coerce.number().int().positive().optional(),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

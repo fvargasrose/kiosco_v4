@@ -101,7 +101,7 @@ const CACHE_TTL_TREATMENTS = 60;
 const CACHE_TTL_DENTISTS = 300;
 const CACHE_TTL_SUCURSALES = 600; // 10 min — cambia poco
 const CACHE_TTL_SLOTS = 60; // 1 min — cambia constantemente
-const CACHE_TTL_ESTADOS = 86_400; // 24h — los estados de citas cambian raramente
+const CACHE_TTL_ESTADOS = 3_600; // 1h — acota el blast-radius si se cachea un id erróneo
 const REQUEST_TIMEOUT_MS = 10_000;
 
 // Dentalink devuelve celular sin prefijo país (ej: "3206505239").
@@ -774,13 +774,28 @@ class DentalinkClient {
    *
    * Los IDs de estado de Dentalink son por clínica — NO son universales. En la
    * instalación validada empíricamente:
-   *   - id_estado=3 → "Confirmado por teléfono" (NO cancela)
-   *   - id_estado=8 → "Cancelada" (correcto)
+   *   - id_estado=8  → "Cancelada" (correcto, asignable vía API)
+   *   - id_estado=21 → "Anulado vía validación" (estado INTERNO, Dentalink
+   *                    responde 400 "reservado para uso interno del software")
    *
-   * Resolvemos el ID en runtime consultando /api/v1/citas/estados y buscando
-   * por nombre (regex `cancel|anula` case-insensitive). Cacheamos 24h en Redis.
+   * Orden de resolución (prioridad):
+   *   1. Override por clínica: env `DENTALINK_CANCEL_ESTADO_ID` (si está definida).
+   *   2. Match EXACTO de nombre normalizado === 'cancelada' (trim + sin acentos
+   *      + minúsculas). NUNCA substring `cancel|anula` (eso elegía "Anulado…"
+   *      internos como id=21 → 400).
+   *   3. Si no hay match exacto, se lanza un error claro (no se degrada a un id
+   *      arbitrario que Dentalink podría rechazar).
+   *
+   * Cacheamos en Redis con TTL acotado.
    */
   async getCancelEstadoId(dentalinkToken: string): Promise<number> {
+    // 1. Override configurable por clínica — tiene prioridad sobre el discovery.
+    const override = config.DENTALINK_CANCEL_ESTADO_ID;
+    if (override) {
+      logger.info({ id: override, source: 'env' }, 'Dentalink cancel estado (override)');
+      return override;
+    }
+
     const cacheKey = 'dl:estados:cancel_id';
     const cached = await getCached<{ id: number }>(cacheKey);
     if (cached?.id) return cached.id;
@@ -790,11 +805,27 @@ class DentalinkClient {
     }>('/api/v1/citas/estados', dentalinkToken);
 
     const estados = data.data ?? [];
-    const match = estados.find((e) => /cancel|anula/i.test(e.nombre ?? ''));
+
+    // Normaliza: trim + minúsculas + sin acentos (NFD descompone, luego se
+    // eliminan los diacríticos U+0300–U+036F).
+    const normalize = (s: string) =>
+      (s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    // 2. Match EXACTO "cancelada" — excluyendo explícitamente estados internos
+    //    cuyo nombre empieza por "anulado".
+    const match = estados.find((e) => {
+      const n = normalize(e.nombre);
+      return n === 'cancelada' && !n.startsWith('anulado');
+    });
+
     if (!match) {
       logger.error(
         { estados },
-        'No se encontró un estado de cancelación en Dentalink (regex cancel|anula)',
+        'No se encontró el estado exacto "Cancelada" en Dentalink',
       );
       throw new DentalinkError(
         'No se pudo determinar el id_estado de cancelación en Dentalink',
