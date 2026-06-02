@@ -13,6 +13,9 @@ export default defineConfig({
     env: {
       DEV_MOCK_EXTERNAL_SERVICES: 'true',
       DEV_MOCK_WOMPI: 'true',
+      // Secreto de eventos de test: permite que los tests de webhook (que firman
+      // el payload) realmente se ejecuten en vez de saltarse por falta de secreto.
+      WOMPI_EVENTS_SECRET: 'test_events_secret',
     },
   },
 });

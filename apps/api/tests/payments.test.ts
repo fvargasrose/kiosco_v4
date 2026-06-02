@@ -713,6 +713,125 @@ describe('POST /webhooks/wompi', () => {
 });
 
 // =============================================================================
+// WEBHOOK WOMPI — matching de payment links (regresión bug ref auto-generada)
+// =============================================================================
+// Wompi NO devuelve nuestra reference para transacciones de un payment link:
+// genera la suya (`<payment_link_id>_<ts>_<rand>`) y manda el `payment_link_id`
+// en el payload. El handler debe casar por `wompi_payment_link_id`, no solo por
+// `wompi_reference`. El builder de webhook viejo usaba la reference ya coincidente,
+// por eso este caso no estaba cubierto.
+
+describe('POST /webhooks/wompi — payment link (reference auto-generada por Wompi)', () => {
+  // Firma un webhook estilo payment link: reference distinta de wompi_reference,
+  // con payment_link_id presente (como en producción/sandbox real).
+  function buildSignedLinkWebhook(opts: {
+    paymentLinkId: string;
+    status: 'APPROVED' | 'DECLINED';
+    secret: string;
+  }): WompiWebhookEvent {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const txId = `wompi-tx-${Math.random().toString(36).slice(2)}`;
+    const amountInCents = 10_000_000; // 100_000 COP
+    // Patrón REAL de Wompi para payment links:
+    const reference = `${opts.paymentLinkId}_${timestamp}_${Math.random()
+      .toString(36)
+      .slice(2)}`;
+
+    const properties = [
+      'transaction.id',
+      'transaction.status',
+      'transaction.amount_in_cents',
+    ];
+    const checksum = createHash('sha256')
+      .update(`${txId}${opts.status}${amountInCents}${timestamp}${opts.secret}`)
+      .digest('hex');
+
+    return {
+      event: 'transaction.updated',
+      data: {
+        transaction: {
+          id: txId,
+          status: opts.status,
+          reference,
+          amount_in_cents: amountInCents,
+          payment_method_type: 'CARD',
+          payment_method: { type: 'CARD' },
+          payment_link_id: opts.paymentLinkId,
+          customer_email: 'maria.perez@demo.local',
+          created_at: new Date().toISOString(),
+        },
+      },
+      sent_at: new Date().toISOString(),
+      timestamp,
+      signature: { checksum, properties },
+      environment: 'test',
+    } as unknown as WompiWebhookEvent;
+  }
+
+  it('casa por payment_link_id y aprueba aunque la reference del webhook ≠ wompi_reference', async () => {
+    const secret = process.env.WOMPI_EVENTS_SECRET;
+    expect(secret).toBeTruthy();
+
+    // 1) Crear pago → fila con wompi_reference DK-... y wompi_payment_link_id
+    const create = await app.inject({
+      method: 'POST',
+      url: '/me/payments',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 100_000, description: 'Pago vía link' },
+    });
+    expect(create.statusCode).toBe(200);
+    const reference: string = create.json().reference;
+
+    // 2) Leer el payment_link_id real que guardó la transacción
+    const row = await db.query<{ wompi_payment_link_id: string }>(
+      `SELECT wompi_payment_link_id FROM transactions WHERE wompi_reference = $1`,
+      [reference],
+    );
+    const linkId = row.rows[0]!.wompi_payment_link_id;
+    expect(linkId).toBeTruthy();
+
+    // 3) Webhook con reference auto-generada (≠ wompi_reference) + payment_link_id
+    const evt = buildSignedLinkWebhook({
+      paymentLinkId: linkId,
+      status: 'APPROVED',
+      secret: secret!,
+    });
+    expect(evt.data.transaction.reference).not.toBe(reference);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhooks/wompi',
+      payload: evt,
+    });
+    expect(res.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 200));
+
+    // 4) La transacción debe quedar APROBADA (con el bug de matching queda 'pending')
+    const after = await db.query<{ status: string; webhook_verified: boolean }>(
+      `SELECT status, webhook_verified FROM transactions WHERE wompi_reference = $1`,
+      [reference],
+    );
+    expect(after.rows[0]!.status).toBe('approved');
+    expect(after.rows[0]!.webhook_verified).toBe(true);
+
+    // 5) El comprobante (sendPaymentReceipt, fire-and-forget) debe encontrar la
+    //    transacción y marcar receipt_sent_at. Si las llamadas posteriores usan
+    //    la reference del webhook (≠ wompi_reference), no la encuentra y queda NULL.
+    let receiptSentAt: Date | null = null;
+    for (let i = 0; i < 20; i++) {
+      const r = await db.query<{ receipt_sent_at: Date | null }>(
+        `SELECT receipt_sent_at FROM transactions WHERE wompi_reference = $1`,
+        [reference],
+      );
+      receiptSentAt = r.rows[0]!.receipt_sent_at;
+      if (receiptSentAt) break;
+      await new Promise((res2) => setTimeout(res2, 100));
+    }
+    expect(receiptSentAt).not.toBeNull();
+  });
+});
+
+// =============================================================================
 // WOMPI CLIENT: generateReference y verifyWebhookSignature unit-level
 // =============================================================================
 

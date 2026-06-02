@@ -70,6 +70,9 @@ export interface WompiWebhookEvent {
       payment_method_type: string;
       payment_method?: Record<string, unknown>;
       customer_email?: string;
+      // Wompi lo incluye en transacciones originadas por un payment link. Lo
+      // usamos para casar el webhook con nuestra fila (su `reference` es propia).
+      payment_link_id?: string;
       created_at: string;
       finalized_at?: string;
     };

@@ -356,22 +356,29 @@ export async function paymentsRoutes(app: FastifyInstance): Promise<void> {
 
     const tx = body.data.transaction;
     const newStatus = mapWompiStatusToDb(tx.status);
+    // Wompi genera su propia reference para transacciones de un payment link
+    // (`<payment_link_id>_<ts>_<rand>`) y manda el payment_link_id en el payload.
+    // Casamos por payment_link_id (preferente) con fallback a wompi_reference
+    // (pagos no-link / compatibilidad).
+    const webhookLinkId = tx.payment_link_id ?? null;
 
     // === Idempotencia: si la transaction ya está en estado terminal, no-op ===
     const existing = await db.query<{
       id: string;
+      wompi_reference: string;
       status: string;
       dentalink_patient_id: string;
       dentalink_treatment_id: string | null;
       amount_cop: string;
       registered_in_dentalink: boolean;
     }>(
-      `SELECT id, status, dentalink_patient_id, dentalink_treatment_id,
+      `SELECT id, wompi_reference, status, dentalink_patient_id, dentalink_treatment_id,
               amount_cop, registered_in_dentalink
        FROM transactions
-       WHERE wompi_reference = $1
+       WHERE wompi_payment_link_id = $1 OR wompi_reference = $2
+       ORDER BY CASE WHEN wompi_payment_link_id = $1 THEN 0 ELSE 1 END
        LIMIT 1`,
-      [tx.reference],
+      [webhookLinkId, tx.reference],
     );
 
     if (existing.rows.length === 0) {
@@ -412,7 +419,7 @@ export async function paymentsRoutes(app: FastifyInstance): Promise<void> {
              raw_webhook_payload = $6::jsonb,
              webhook_received_at = now(),
              webhook_verified = true
-         WHERE wompi_reference = $7`,
+         WHERE id = $7`,
         [
           newStatus,
           tx.status,
@@ -420,7 +427,7 @@ export async function paymentsRoutes(app: FastifyInstance): Promise<void> {
           tx.payment_method_type,
           JSON.stringify(tx.payment_method ?? {}),
           JSON.stringify(body),
-          tx.reference,
+          txRow.id,
         ],
       );
 
@@ -453,18 +460,20 @@ export async function paymentsRoutes(app: FastifyInstance): Promise<void> {
       // Si el pago fue aprobado, intentar registrarlo en Dentalink.
       // No bloqueamos la respuesta del webhook con esto.
       if (newStatus === 'approved' && !txRow.registered_in_dentalink) {
+        // Usamos NUESTRA wompi_reference (no la del webhook, que en payment links
+        // es autogenerada por Wompi y no casa con la fila en BD).
         // Fire-and-forget. El reconciler programado lo reintentará si falla.
-        reconcileWithDentalink(txRow.id, tx.reference).catch((err) => {
+        reconcileWithDentalink(txRow.id, txRow.wompi_reference).catch((err) => {
           logger.error(
-            { err, reference: tx.reference },
+            { err, reference: txRow.wompi_reference },
             'Reconciliación inicial Dentalink falló (será reintentada)',
           );
         });
 
         // Hito 8: enviar comprobante por email + SMS (best-effort, async)
-        sendPaymentReceipt({ reference: tx.reference }).catch((err) => {
+        sendPaymentReceipt({ reference: txRow.wompi_reference }).catch((err) => {
           logger.error(
-            { err, reference: tx.reference },
+            { err, reference: txRow.wompi_reference },
             'Envío de comprobante falló',
           );
         });
