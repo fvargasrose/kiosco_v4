@@ -23,6 +23,9 @@ secrets/
 # Logs
 logs/
 *.log
+
+# Artefactos del script de prueba Wompi (apps/api/scripts/wompi-qr-pago.mjs)
+wompi_qr.png
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
