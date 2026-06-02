@@ -60,7 +60,10 @@
     }
 
     # ----- API backend -----
-    handle /api/* {
+    # handle_path (no handle) para QUITAR el prefijo /api antes del proxy: la API
+    # sirve sus rutas sin prefijo (p.ej. /kiosk/bootstrap), igual que el strip que
+    # hace Vite en dev. Con `handle` el path llegaba intacto (/api/...) → 404.
+    handle_path /api/* {
         reverse_proxy api:3000 {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
