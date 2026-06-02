@@ -69,7 +69,9 @@ body.theme-apple {
 
 .ak-sidebar-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 0 18px 22px;
   border-bottom: 0.5px solid var(--border);
@@ -77,6 +79,8 @@ body.theme-apple {
   overflow: hidden;
 }
 .ak-sidebar.collapsed .ak-sidebar-header { justify-content: center; padding: 0 14px 22px; }
+/* El logo identifica la clínica: ocultamos el nombre en texto cuando es banner. */
+.ak-sidebar-header .ak-logo-text { display: none; }
 
 .ak-logo-circle {
   width: 36px; height: 36px;
@@ -87,13 +91,17 @@ body.theme-apple {
   font-size: 18px; color: #fff;
 }
 .ak-sidebar-logo {
-  width: 36px; height: 36px;
+  width: 100%;
+  height: auto;
+  max-height: 96px;
   flex-shrink: 0;
   object-fit: contain;
   border-radius: 8px;
   background: #fff;
-  padding: 2px;
+  padding: 6px;
 }
+/* Al colapsar el sidebar (68px) el banner se encoge para no desbordar. */
+.ak-sidebar.collapsed .ak-sidebar-logo { max-height: 40px; padding: 2px; }
 
 /* Header global de clínica (pantallas sin shell apple: login, habeas-data, etc.) */
 .clinic-header {
