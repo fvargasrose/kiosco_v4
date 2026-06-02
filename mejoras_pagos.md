@@ -375,13 +375,13 @@ fix de referencia aplicado:
 - **`Webhook Wompi procesado`** ✓ (casó por `payment_link_id`).
 - **Recibo al paciente: ENVIADO y CONFIRMADO** → `fabiavargas@gmail.com`
   (`Payment receipt email sent`; `receipt_sent_at` seteado; `channels=email,sms`).
-- ⚠️ **Correo a la clínica (`notificaciones@2ways.us`): NO confirmado.** El log
-  **no registra** `Admin payment notification sent` ni un `Email sent via SMTP`
-  a `no***@2ways.us`. `sendAdminPaymentNotification` quedó **colgada en el envío
-  SMTP** (sin throw, sin timeout). **Causa probable:** auto-envío `from == to`
-  (el `SENDER_EMAIL` y el `notification_email` son ambos `notificaciones@2ways.us`;
-  `mail.2ways.us` parece colgarse con el correo a sí mismo). El recibo al paciente
-  (dominio gmail) sí salió. → **Issue abierto** (ver §10.3).
+- ❌ **Correo a la clínica (`notificaciones@2ways.us`): CONFIRMADO que NO llegó**
+  (verificado con el usuario). El log **no registra** `Admin payment notification
+  sent` ni un `Email sent via SMTP` a `no***@2ways.us`. `sendAdminPaymentNotification`
+  quedó **colgada en el envío SMTP** (sin throw, sin timeout). **Causa probable:**
+  auto-envío `from == to` (el `SENDER_EMAIL` y el `notification_email` son ambos
+  `notificaciones@2ways.us`; `mail.2ways.us` se cuelga con el correo a sí mismo).
+  El recibo al paciente (dominio gmail) sí salió. → **Issue abierto** (ver §10.3).
 
 ### 2. Bugs encontrados y corregidos (bug de referencia, 2 puntos)
 Commit del fix: **`8fd4264`** en rama `pagos`
