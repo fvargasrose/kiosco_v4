@@ -147,8 +147,10 @@ export async function kioskRoutes(app: FastifyInstance): Promise<void> {
       clinic: {
         display_name: clinic.display_name,
         // URL pública del logo con cache-buster basado en el hash (404 si no hay logo subido).
+        // Va bajo /api porque el frontend la usa como <img src> directo (sin pasar por su
+        // cliente HTTP), y solo /api/* se enruta a la API (Vite en dev, Caddy handle_path en prod).
         logo_url: clinic.logo_path
-          ? `/public/clinic-logo${clinic.logo_hash ? `?v=${clinic.logo_hash.slice(0, 12)}` : ''}`
+          ? `/api/public/clinic-logo${clinic.logo_hash ? `?v=${clinic.logo_hash.slice(0, 12)}` : ''}`
           : null,
       },
       habeas_data: {
