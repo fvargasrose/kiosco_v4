@@ -399,10 +399,34 @@ Commit del fix: **`8fd4264`** en rama `pagos`
 - Estado: **corregido y commiteado** (`8fd4264`).
 
 ### 3. Lo que falta / próximos pasos (próxima sesión)
-- **Issue abierto — correo a la clínica colgado (from == to).** Decidir: usar un
-  `notification_email` distinto del `SENDER_EMAIL` (ej. `recepcion@2ways.us`), o
-  dar **timeout** al envío del admin para que no quede colgado, o revisar el
-  servidor SMTP con auto-envío. Revalidar.
+
+#### 3.A — ISSUE ABIERTO: correo a la clínica no llega (from == to) — PRIORITARIO
+Confirmado: el correo a `notificaciones@2ways.us` no llegó porque el envío SMTP
+se cuelga (el `SENDER_EMAIL` y el `notification_email` son el mismo buzón;
+`mail.2ways.us` no completa la auto-entrega). `sendAdminPaymentNotification` no
+tiene timeout ni loguea error → falla en silencio. Plan, en orden:
+
+1. **Fix funcional (rápido): cambiar `notification_email` a una dirección distinta
+   del `SENDER_EMAIL`.** Opciones: `recepcion@2ways.us`, `gerencia@2ways.us`, o un
+   Gmail de la clínica. Cómo aplicarlo (igual que se configuró):
+   ```bash
+   # login admin → token; luego:
+   curl -s -X PATCH http://localhost:3000/admin/clinic \
+     -H "Authorization: Bearer <session_token>" -H "Content-Type: application/json" \
+     -d '{"notification_email":"recepcion@2ways.us"}'
+   ```
+   (o desde el panel admin → Configuración de clínica → Email de notificaciones).
+2. **Fix defensivo (código, recomendado): timeout + log de error en el envío admin.**
+   En `apps/api/src/lib/notifications.ts`, `sendAdminPaymentNotification` (≈línea
+   377): envolver `getEmailSender().send(...)` con un timeout (p. ej. `Promise.race`
+   con ~10s) para que un SMTP lento **no cuelgue la tarea** y deje rastro en logs.
+   Hoy si el SMTP no responde, no se envía y **no hay error en el log** (riesgo
+   latente que ocultó este bug). NO toca `payments.ts`.
+3. **Revisar `mail.2ways.us`** (greylisting / detección de loop en auto-entrega)
+   si se quiere mantener `from == to`.
+4. **Revalidar** con un pago sandbox nuevo: confirmar `Admin payment notification
+   sent` + llegada real al buzón elegido. (Comandos de túnel + backend en §8; si
+   se cerraron, relanzar desde ahí.)
 - **Integrar la rama `pagos` a `main`:** decisión pendiente — PR o merge directo.
 - **Revertir `.env` de sandbox a producción** (ver `DEPLOY_PRODUCCION.md`):
   llaves `test_`→`prod_`, `WOMPI_API_URL`/`WOMPI_BASE_URL` a `production.wompi.co`,
