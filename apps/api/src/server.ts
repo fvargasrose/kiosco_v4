@@ -24,6 +24,7 @@ import { adminAuthRoutes } from './routes/admin-auth.js';
 import { patientAuthRoutes } from './routes/patient-auth.js';
 import { patientMeRoutes } from './routes/patient-me.js';
 import { kioskRoutes } from './routes/kiosk.js';
+import { publicRoutes } from './routes/public.js';
 import { paymentsRoutes } from './routes/payments.js';
 import { bookingRoutes } from './routes/booking.js';
 import { adminClinicRoutes } from './routes/admin-clinic.js';
@@ -136,6 +137,7 @@ export async function buildServer() {
   await app.register(patientAuthRoutes);
   await app.register(patientMeRoutes);
   await app.register(kioskRoutes);
+  await app.register(publicRoutes);
   await app.register(paymentsRoutes);
   await app.register(bookingRoutes);
   await app.register(adminClinicRoutes);

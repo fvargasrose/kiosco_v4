@@ -3,44 +3,34 @@
  * Routes: POST /kiosk/register
  * =============================================================================
  *
- * Registro de paciente nuevo en Dentalink desde el kiosco.
+ * Registro de paciente nuevo en Dentalink desde la web pública.
  *
- * Requiere kiosk_token (autenticación de kiosco, no de paciente).
- * El servidor valida que los campos de confirmación coincidan para
- * no depender solo del frontend.
+ * Modelo web público (Hito A, Opción A): ya NO requiere kiosk_token. La ruta
+ * está gobernada por el feature flag FEATURE_REGISTRO; si está desactivado
+ * responde 403 FEATURE_DISABLED. El servidor valida que los campos de
+ * confirmación coincidan para no depender solo del frontend.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db.js';
 import { decrypt } from '../lib/crypto.js';
 import { dentalink, DentalinkError } from '../lib/dentalink.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
-import { verifyKioskToken } from '../lib/jwt.js';
+import { config } from '../lib/config.js';
 
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
-  return match ? match[1]! : null;
-}
-
-async function requireKioskAuth(request: any, reply: any): Promise<void> {
-  const token = extractBearer(request.headers.authorization);
-  if (!token) return reply.code(401).send({ error: 'KIOSK_TOKEN_REQUIRED' });
-
-  try {
-    const claims = await verifyKioskToken(token);
-    const result = await db.query<{ is_active: boolean }>(
-      `SELECT is_active FROM kiosks WHERE id = $1`,
-      [claims.sub],
-    );
-    if (!result.rows[0]?.is_active) {
-      return reply.code(403).send({ error: 'KIOSK_INACTIVE' });
-    }
-    request.kioskId = claims.sub;
-  } catch {
-    return reply.code(401).send({ error: 'INVALID_KIOSK_TOKEN' });
+/**
+ * Gate por feature flag: el registro público solo está disponible si
+ * FEATURE_REGISTRO está activo. Se evalúa por request (no en import) para que
+ * el flag pueda controlarse por entorno.
+ */
+async function requireFeatureRegistro(
+  _request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  if (!config.FEATURE_REGISTRO) {
+    return reply.code(403).send({ error: 'FEATURE_DISABLED' });
   }
 }
 
@@ -137,7 +127,7 @@ export async function patientRegisterRoutes(app: FastifyInstance): Promise<void>
    *   422  Dentalink rechazó los datos
    *   503  Sin configuración de Dentalink
    */
-  app.post('/kiosk/register', { preHandler: requireKioskAuth }, async (request: any, reply) => {
+  app.post('/kiosk/register', { preHandler: requireFeatureRegistro }, async (request, reply) => {
     const parsed = RegisterBody.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -172,8 +162,7 @@ export async function patientRegisterRoutes(app: FastifyInstance): Promise<void>
 
     if (existing) {
       await audit({
-        actorType: 'kiosk',
-        actorId: request.kioskId,
+        actorType: 'system',
         action: 'patient.register_duplicate',
         result: 'denied',
         ip: request.ip,
@@ -216,8 +205,7 @@ export async function patientRegisterRoutes(app: FastifyInstance): Promise<void>
     }
 
     await audit({
-      actorType: 'kiosk',
-      actorId: request.kioskId,
+      actorType: 'system',
       action: 'patient.registered',
       result: 'success',
       ip: request.ip,

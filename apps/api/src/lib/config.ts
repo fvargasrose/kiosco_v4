@@ -117,6 +117,14 @@ const ConfigSchema = z.object({
   //         El endpoint POST /kiosk/register sigue respondiendo (no se desmonta).
   FEATURE_REGISTRO: boolEnv(false),
 
+  // -------- Cloudflare Turnstile (anti-abuso de OTP en web pública) --------
+  // Hook del Hito A: se definen las claves pero el enforcement (verificación
+  // server-side del token en /auth/request-otp) se implementa en el Hito B.
+  // El SITEKEY se expone vía /public/bootstrap para que el frontend renderice
+  // el widget. Si TURNSTILE_SECRET está vacío, no hay verificación (dev).
+  TURNSTILE_SECRET: z.string().optional(),
+  TURNSTILE_SITEKEY: z.string().optional(),
+
   // -------- Tema visual del kiosco --------
   KIOSK_THEME: z.enum(['apple', 'default']).default('apple'),
 
@@ -161,4 +169,6 @@ export const features = {
     config.TWILIO_FROM_NUMBER
   ),
   smtpConfigured: !!(config.SMTP_SERVER && config.SENDER_EMAIL && config.SENDER_PASSWORD),
+  // Turnstile listo para enforcement (Hito B): requiere el secret server-side.
+  turnstileConfigured: !!config.TURNSTILE_SECRET,
 } as const;

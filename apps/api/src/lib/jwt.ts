@@ -39,7 +39,7 @@ export interface KioskClaims extends JWTPayload {
 
 export interface PatientSessionClaims extends JWTPayload {
   sub: string; // dentalink patient id
-  kiosk_id: string;
+  kiosk_id: string | null; // null en sesiones web públicas (sin kiosco)
   jti: string;
 }
 
@@ -119,7 +119,12 @@ export async function verifyKioskToken(token: string): Promise<KioskClaims> {
 
 export async function signPatientSession(payload: {
   dentalinkPatientId: string;
-  kioskId: string;
+  /**
+   * Kiosco de origen. Opcional desde el modelo web público (Hito A): las
+   * sesiones iniciadas por la web no provienen de un kiosco físico y van con
+   * kiosk_id = null en el claim y en patient_sessions.
+   */
+  kioskId?: string | null;
 }): Promise<{ token: string; jti: string; expiresAt: Date }> {
   const jti = randomUUID();
   const expiresAt = new Date(
@@ -127,7 +132,7 @@ export async function signPatientSession(payload: {
   );
 
   const token = await new SignJWT({
-    kiosk_id: payload.kioskId,
+    kiosk_id: payload.kioskId ?? null,
     jti,
   })
     .setProtectedHeader({ alg: 'HS256' })

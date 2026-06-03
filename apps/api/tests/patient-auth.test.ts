@@ -20,14 +20,12 @@ import type { FastifyInstance } from 'fastify';
 import { createHash, randomUUID } from 'crypto';
 import { buildServer } from '../src/server.js';
 import { db } from '../src/lib/db.js';
-import { signKioskToken, verifyPatientSession } from '../src/lib/jwt.js';
+import { verifyPatientSession } from '../src/lib/jwt.js';
 import { setSmsSender, type SmsSender } from '../src/lib/sms.js';
 import { setEmailSender, type EmailSender } from '../src/lib/email.js';
 import { refuseInProduction } from '../src/scripts/get-otp.js';
 
 let app: FastifyInstance;
-let kioskToken: string;
-let revokedKioskToken: string;
 
 const captured: {
   sms: Array<{ to: string; body: string }>;
@@ -88,27 +86,7 @@ beforeAll(async () => {
     `, [POLICY_VERSION, POLICY_HASH]);
   }
 
-  await db.query(`DELETE FROM kiosks WHERE name LIKE 'TEST%'`);
-  const kioskRes = await db.query<{ id: string }>(`
-    INSERT INTO kiosks (name, token_hash, token_expires_at, is_active)
-    VALUES ('TEST Kiosco', $1, now() + interval '1 day', true)
-    RETURNING id
-  `, [createHash('sha256').update('temp').digest('hex')]);
-  const kioskId = kioskRes.rows[0]!.id;
-
-  const k = await signKioskToken({ kioskId, kioskName: 'TEST Kiosco' });
-  kioskToken = k.token;
-
-  const revokedRes = await db.query<{ id: string }>(`
-    INSERT INTO kiosks (name, token_hash, token_expires_at, is_active, revoked_at)
-    VALUES ('TEST Revocado', $1, now() + interval '1 day', false, now())
-    RETURNING id
-  `, [createHash('sha256').update('revoked').digest('hex')]);
-  const revoked = await signKioskToken({
-    kioskId: revokedRes.rows[0]!.id,
-    kioskName: 'TEST Revocado',
-  });
-  revokedKioskToken = revoked.token;
+  // Hito A: el flujo es web público; ya no se crean kioscos ni tokens de kiosco.
 });
 
 afterAll(async () => {
@@ -134,9 +112,7 @@ describe('POST /auth/request-otp - validación de input', () => {
   it('rechaza body sin phone', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         consent: true,
         policy_version: POLICY_VERSION,
         policy_hash: POLICY_HASH,
@@ -149,9 +125,7 @@ describe('POST /auth/request-otp - validación de input', () => {
   it('rechaza teléfono sin código país Colombia', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '3001234567',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -164,9 +138,7 @@ describe('POST /auth/request-otp - validación de input', () => {
   it('rechaza teléfono que no empieza en 3', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '+576001234567',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -179,9 +151,7 @@ describe('POST /auth/request-otp - validación de input', () => {
   it('rechaza consent = false', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: false,
         policy_version: POLICY_VERSION,
@@ -194,9 +164,7 @@ describe('POST /auth/request-otp - validación de input', () => {
   it('rechaza policy_hash con formato inválido', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -207,8 +175,12 @@ describe('POST /auth/request-otp - validación de input', () => {
   });
 });
 
-describe('POST /auth/request-otp - kiosk token', () => {
-  it('rechaza sin Authorization header', async () => {
+// Hito A (Opción A): /auth/request-otp es PÚBLICO — ya no exige kiosk_token.
+// Las antiguas aserciones de "kiosk token requerido / inválido / kiosco
+// revocado" se reemplazan por las del nuevo contrato público. El control de
+// acceso ahora recae en rate-limiting + Turnstile (Hito B) + anti-enumeración.
+describe('POST /auth/request-otp - acceso público (sin kiosk token)', () => {
+  it('acepta la solicitud SIN Authorization header (web pública)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
@@ -219,11 +191,11 @@ describe('POST /auth/request-otp - kiosk token', () => {
         policy_hash: POLICY_HASH,
       },
     });
-    expect(res.statusCode).toBe(401);
-    expect(res.json().error).toBe('KIOSK_TOKEN_REQUIRED');
+    expect(res.statusCode).toBe(200);
+    expect(typeof res.json().request_id).toBe('string');
   });
 
-  it('rechaza con token inválido', async () => {
+  it('ignora un Authorization header espurio (token ya no se valida)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/request-otp',
@@ -235,24 +207,7 @@ describe('POST /auth/request-otp - kiosk token', () => {
         policy_hash: POLICY_HASH,
       },
     });
-    expect(res.statusCode).toBe(401);
-    expect(res.json().error).toBe('INVALID_KIOSK_TOKEN');
-  });
-
-  it('rechaza con kiosco revocado/inactivo', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${revokedKioskToken}` },
-      payload: {
-        phone: MOCK_PATIENT.phone,
-        consent: true,
-        policy_version: POLICY_VERSION,
-        policy_hash: POLICY_HASH,
-      },
-    });
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error).toBe('KIOSK_INACTIVE');
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -260,9 +215,7 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
   it('teléfono que NO existe recibe la MISMA respuesta que uno que existe', async () => {
     const resReal = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -274,9 +227,7 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
 
     const resFake = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -298,9 +249,7 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -319,9 +268,7 @@ describe('POST /auth/request-otp - anti-enumeración', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -353,9 +300,7 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -389,9 +334,7 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -413,7 +356,6 @@ describe('POST /auth/request-otp - rate limiting', () => {
       const r = await app.inject({
         method: 'POST',
         url: '/auth/request-otp',
-        headers: { authorization: `Bearer ${kioskToken}` },
         payload: {
           phone: MOCK_PATIENT.phone,
           consent: true,
@@ -426,9 +368,7 @@ describe('POST /auth/request-otp - rate limiting', () => {
 
     const r4 = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -447,9 +387,7 @@ describe('POST /auth/verify-otp - happy path', () => {
 
     const reqRes = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -477,6 +415,8 @@ describe('POST /auth/verify-otp - happy path', () => {
 
     const claims = await verifyPatientSession(body.session_token);
     expect(claims.sub).toBe(MOCK_PATIENT.dentalink_id);
+    // Sesión web pública: sin kiosco de origen.
+    expect(claims.kiosk_id).toBeNull();
   });
 });
 
@@ -488,9 +428,7 @@ describe('POST /auth/verify-otp - errores', () => {
     captured.sms = [];
     const r = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -587,9 +525,7 @@ describe('POST /auth/verify-otp - errores', () => {
 
     const req = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: '+573009999999',
         consent: true,
         policy_version: POLICY_VERSION,
@@ -618,9 +554,7 @@ describe('OTP nunca aparece en logs ni en responses', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -641,9 +575,7 @@ describe('OTP nunca aparece en logs ni en responses', () => {
 
     const reqRes = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -672,9 +604,7 @@ describe('POST /auth/logout', () => {
 
     const r = await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -726,9 +656,7 @@ describe('Audit log', () => {
   it('OTP request genera entrada en audit', async () => {
     await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
@@ -749,9 +677,7 @@ describe('Audit log', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/auth/request-otp',
-      headers: { authorization: `Bearer ${kioskToken}` },
-      payload: {
+      url: '/auth/request-otp',      payload: {
         phone: MOCK_PATIENT.phone,
         consent: true,
         policy_version: POLICY_VERSION,
