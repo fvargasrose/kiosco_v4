@@ -44,7 +44,8 @@ import {
 } from '../lib/totp.js';
 import { signAdminSession, verifyAdminSession } from '../lib/jwt.js';
 import { config } from '../lib/config.js';
-import { requireAdmin } from '../lib/auth-middleware.js';
+import { requireAdmin, ADMIN_BLOCKLIST_PREFIX } from '../lib/auth-middleware.js';
+import { redis } from '../lib/redis.js';
 
 // ----- Schemas Zod -----
 
@@ -570,11 +571,19 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
   /**
    * POST /admin/auth/logout
    *
-   * Nota: como usamos JWT (stateless), "logout" en el cliente es solo borrar el token.
-   * Aquí registramos el evento. Para revocación real, usaríamos una blocklist en Redis.
+   * Revocación real: el jti de la sesión se añade a una blocklist en Redis con
+   * TTL = vida restante del JWT. requireAdmin consulta esa blocklist, de modo
+   * que el token deja de servir aunque siga siendo criptográficamente válido.
    */
   app.post('/admin/auth/logout', { preHandler: requireAdmin }, async (request, reply) => {
     const admin = request.admin!;
+
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const ttl = admin.exp && admin.exp > nowSecs
+      ? admin.exp - nowSecs
+      : config.JWT_ADMIN_SESSION_TTL_HOURS * 3600;
+    await redis.set(`${ADMIN_BLOCKLIST_PREFIX}${admin.jti}`, '1', ttl);
+
     await audit({
       actorType: 'admin',
       actorId: admin.sub,

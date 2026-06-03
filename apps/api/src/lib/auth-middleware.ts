@@ -14,6 +14,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAdminSession, type AdminSessionClaims } from '../lib/jwt.js';
 import { audit } from '../lib/audit.js';
+import { redis } from '../lib/redis.js';
+
+/** Prefijo de la blocklist de sesiones admin revocadas (logout) en Redis. */
+export const ADMIN_BLOCKLIST_PREFIX = 'admin:blocklist:';
 
 // Extender el tipo de FastifyRequest para incluir admin
 declare module 'fastify' {
@@ -47,6 +51,22 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
 
   try {
     const claims = await verifyAdminSession(token);
+
+    // Blocklist: una sesión cerrada vía /logout se rechaza aunque el JWT siga
+    // siendo criptográficamente válido (revocación real de sesiones admin).
+    const revoked = await redis.get(`${ADMIN_BLOCKLIST_PREFIX}${claims.jti}`);
+    if (revoked) {
+      await audit({
+        actorType: 'admin',
+        actorId: claims.sub,
+        actorEmail: claims.email,
+        action: 'admin.auth.revoked_token',
+        result: 'denied',
+        ip: request.ip,
+      });
+      return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Sesión cerrada' });
+    }
+
     request.admin = claims;
   } catch (err) {
     await audit({
