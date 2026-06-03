@@ -14,12 +14,65 @@
  */
 
 import { db } from './db.js';
+import { config } from './config.js';
 import { logger, maskEmail, maskPhone } from './logger.js';
 import { audit } from './audit.js';
-import { getEmailSender } from './email.js';
+import { getEmailSender, type EmailSender } from './email.js';
 import { getSmsSender } from './sms.js';
 import { dentalink } from './dentalink.js';
 import { decrypt } from './crypto.js';
+
+/**
+ * Resuelve el destinatario del correo de notificación a la clínica.
+ *
+ * Regla: se usa el email configurado en el panel (`panel`). Si está vacío o
+ * coincide con el remitente SMTP (`sender` → causaría un envío `from == to` que
+ * algunos servidores cuelgan), se cae al alternativo del entorno
+ * (`fallback` = `CORREO_NOTIFICACION`). Si tras el fallback el destinatario
+ * sigue siendo el remitente, se devuelve `null` (no se envía: evita el loop
+ * garantizado). Comparación case-insensitive.
+ *
+ * Función pura y exportada para poder testearla sin tocar el singleton config.
+ */
+export function resolveAdminEmail(
+  panel: string | null,
+  sender: string | null,
+  fallback: string | null,
+): string | null {
+  const senderNorm = sender ? sender.toLowerCase() : null;
+  const isSender = (addr: string) => senderNorm !== null && addr.toLowerCase() === senderNorm;
+
+  let email = panel && panel.length > 0 ? panel : null;
+  if (!email || isSender(email)) {
+    email = fallback && fallback.length > 0 ? fallback : null;
+  }
+  if (!email || isSender(email)) return null;
+  return email;
+}
+
+/**
+ * Envía un email con un timeout duro. Un SMTP que se cuelga (p. ej. auto-entrega
+ * `from == to`) no debe colgar la tarea indefinidamente: al expirar `ms` se
+ * rechaza la promesa para que el `try/catch` del llamador deje rastro en logs.
+ */
+export async function sendWithTimeout(
+  sender: EmailSender,
+  msg: { to: string; subject: string; html: string; text?: string },
+  ms: number,
+): Promise<{ id: string }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Email send timeout tras ${ms}ms (to=${maskEmail(msg.to)})`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([sender.send(msg), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * Envía un OTP por SMS y email en paralelo. Usa Promise.allSettled —
@@ -316,7 +369,14 @@ async function sendAdminPaymentNotification(p: AdminNotificationParams): Promise
   const cfgRes = await db.query<{ notification_email: string | null }>(
     `SELECT notification_email FROM clinic WHERE id = 1`,
   );
-  const adminEmail = cfgRes.rows[0]?.notification_email ?? null;
+  const panelEmail = cfgRes.rows[0]?.notification_email ?? null;
+  // Panel primero; fallback a CORREO_NOTIFICACION si está vacío o == remitente
+  // (evita el loop from==to que cuelga el envío). Ver resolveAdminEmail.
+  const adminEmail = resolveAdminEmail(
+    panelEmail,
+    config.SENDER_EMAIL ?? null,
+    config.CORREO_NOTIFICACION ?? null,
+  );
   if (!adminEmail) return; // feature opcional — no es error
 
   // Resolver datos del tratamiento (best-effort). Si Dentalink no responde,
@@ -374,7 +434,7 @@ async function sendAdminPaymentNotification(p: AdminNotificationParams): Promise
     saldoDespues: treatment?.saldoDespues ?? null,
   });
 
-  await getEmailSender().send({ to: adminEmail, subject, html, text });
+  await sendWithTimeout(getEmailSender(), { to: adminEmail, subject, html, text }, 10000);
   logger.info({ reference: p.reference, to: maskEmail(adminEmail) }, 'Admin payment notification sent');
 }
 

@@ -7,8 +7,9 @@
  * `notification_email` configurado, se envía un email enriquecido al admin.
  *
  * Reglas validadas:
- *   - notification_email = null → NO se envía al admin (no error en logs).
- *   - notification_email seteado → ambos correos salen.
+ *   - notification_email = null → cae al fallback CORREO_NOTIFICACION (.env) si
+ *     está configurado; si no, no se envía al admin (sin error en logs).
+ *   - notification_email seteado (distinto del remitente) → ambos correos salen.
  *   - Si el envío al admin lanza, receipt_sent_at del paciente se persiste igual.
  *   - El email del paciente aparece ENMASCARADO en el body del admin.
  *   - Idempotencia: si receipt_sent_at != null, segunda invocación es no-op.
@@ -17,9 +18,10 @@
 import 'dotenv/config';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../src/lib/db.js';
+import { config } from '../src/lib/config.js';
 import { setEmailSender, type EmailSender } from '../src/lib/email.js';
 import { setSmsSender, type SmsSender } from '../src/lib/sms.js';
-import { sendPaymentReceipt } from '../src/lib/notifications.js';
+import { sendPaymentReceipt, resolveAdminEmail, sendWithTimeout } from '../src/lib/notifications.js';
 import { randomUUID } from 'crypto';
 
 // Paciente mock '12345' tiene email maria.perez@demo.local, celular +573001234567.
@@ -114,7 +116,7 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('sendPaymentReceipt — notificación al admin', () => {
-  it('no envía al admin si notification_email es NULL', async () => {
+  it('con notification_email NULL, cae al fallback CORREO_NOTIFICACION (o solo paciente si no hay fallback)', async () => {
     await db.query(`UPDATE clinic SET notification_email = NULL WHERE id = 1`);
 
     const reference = makeReference();
@@ -122,9 +124,18 @@ describe('sendPaymentReceipt — notificación al admin', () => {
 
     await sendPaymentReceipt({ reference });
 
-    // Solo el paciente recibe (1 email + 1 sms)
-    expect(captured.emails).toHaveLength(1);
-    expect(captured.emails[0]!.to).toBe('maria.perez@demo.local');
+    const fallback = config.CORREO_NOTIFICACION ?? null;
+    if (fallback) {
+      // Paciente + admin al fallback del .env
+      const tos = captured.emails.map((e) => e.to).sort();
+      expect(captured.emails).toHaveLength(2);
+      expect(tos).toContain('maria.perez@demo.local');
+      expect(tos).toContain(fallback);
+    } else {
+      // Sin fallback configurado: solo el paciente recibe
+      expect(captured.emails).toHaveLength(1);
+      expect(captured.emails[0]!.to).toBe('maria.perez@demo.local');
+    }
     expect(captured.sms).toHaveLength(1);
   });
 
@@ -241,5 +252,101 @@ describe('sendPaymentReceipt — notificación al admin', () => {
     expect(adminEmail!.html).toContain('Pago sin tratamiento asociado');
     // No debe haber filas de saldo
     expect(adminEmail!.html).not.toContain('Saldo antes');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unit: resolveAdminEmail — destinatario del correo a la clínica con fallback.
+// Regla acordada: usar el email del panel; si está vacío O coincide con el
+// remitente (SENDER_EMAIL → loop from==to), usar CORREO_NOTIFICACION (.env).
+// Si tras el fallback el destinatario sigue siendo == SENDER, no enviar (null).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resolveAdminEmail — fallback panel / CORREO_NOTIFICACION', () => {
+  const SENDER = 'notificaciones@2ways.us';
+  const FALLBACK = 'fabiavargas@gmail.com';
+
+  it('panel con valor distinto del remitente → usa el del panel', () => {
+    expect(resolveAdminEmail('recepcion@clinica.test', SENDER, FALLBACK)).toBe(
+      'recepcion@clinica.test',
+    );
+  });
+
+  it('panel null → usa el fallback (CORREO_NOTIFICACION)', () => {
+    expect(resolveAdminEmail(null, SENDER, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it('panel vacío ("") → usa el fallback', () => {
+    expect(resolveAdminEmail('', SENDER, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it('panel == SENDER (loop from==to) → usa el fallback', () => {
+    expect(resolveAdminEmail(SENDER, SENDER, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it('panel == SENDER ignorando mayúsculas → usa el fallback', () => {
+    expect(resolveAdminEmail('Notificaciones@2Ways.US', SENDER, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it('panel == SENDER y fallback == SENDER → null (evita loop garantizado)', () => {
+    expect(resolveAdminEmail(SENDER, SENDER, SENDER)).toBeNull();
+  });
+
+  it('panel null y fallback == SENDER → null', () => {
+    expect(resolveAdminEmail(null, SENDER, SENDER)).toBeNull();
+  });
+
+  it('todo null/sin configurar → null', () => {
+    expect(resolveAdminEmail(null, null, null)).toBeNull();
+  });
+
+  it('sin SENDER (null) y panel con valor → usa el panel sin comparar', () => {
+    expect(resolveAdminEmail('admin@clinica.test', null, FALLBACK)).toBe(
+      'admin@clinica.test',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unit: sendWithTimeout — un SMTP que se cuelga no debe colgar la tarea.
+// Debe rechazar al expirar el timeout (deja rastro vía el try/catch del caller).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('sendWithTimeout — corta envíos colgados', () => {
+  it('rechaza si el sender nunca resuelve (timeout)', async () => {
+    const hangingSender: EmailSender = {
+      send() {
+        return new Promise<{ id: string }>(() => {
+          /* nunca resuelve */
+        });
+      },
+    };
+
+    await expect(
+      sendWithTimeout(
+        hangingSender,
+        { to: 'x@y.test', subject: 's', html: '<p>h</p>' },
+        50,
+      ),
+    ).rejects.toThrow(/timeout/i);
+  });
+
+  it('resuelve normalmente si el sender responde a tiempo', async () => {
+    const captured: Array<{ to: string }> = [];
+    const okSender: EmailSender = {
+      async send(input) {
+        captured.push({ to: input.to });
+        return { id: 'ok-1' };
+      },
+    };
+
+    const res = await sendWithTimeout(
+      okSender,
+      { to: 'a@b.test', subject: 's', html: '<p>h</p>' },
+      1000,
+    );
+
+    expect(res.id).toBe('ok-1');
+    expect(captured).toEqual([{ to: 'a@b.test' }]);
   });
 });

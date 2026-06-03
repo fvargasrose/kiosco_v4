@@ -89,6 +89,10 @@ const ConfigSchema = z.object({
   SENDER_EMAIL: z.string().email().optional(),
   SENDER_NAME: z.string().optional(),
   SENDER_PASSWORD: z.string().optional(),
+  // Email alternativo para la notificación de pago a la clínica. Siempre presente
+  // en el .env; se usa como fallback cuando notification_email (panel) está vacío
+  // o coincide con SENDER_EMAIL (loop from==to). Ver resolveAdminEmail.
+  CORREO_NOTIFICACION: z.string().email().optional(),
 
   // -------- Observabilidad --------
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),

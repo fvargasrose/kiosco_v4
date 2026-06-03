@@ -59,6 +59,11 @@ class SmtpEmailSender implements EmailSender {
         user: config.SENDER_EMAIL,
         pass: config.SENDER_PASSWORD,
       },
+      // Un SMTP que no responde (p. ej. auto-entrega from==to) no debe colgar
+      // el envío indefinidamente: que falle rápido y deje rastro en logs.
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
     return this.transporter;
   }
