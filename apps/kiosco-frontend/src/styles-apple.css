@@ -387,41 +387,61 @@ body.theme-apple {
 .ak-step-item.active { background: #fff; color: var(--accent); font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .ak-step-item.done   { color: var(--accent); }
 
-/* ── Doctor option (booking paso 2) ── */
-.ak-doctor-option {
-  background: var(--card-bg); border: 0.5px solid var(--border);
-  border-radius: var(--radius-md); padding: 13px 15px;
-  cursor: pointer; transition: all 0.15s; margin-bottom: 8px;
-  display: flex; align-items: center; gap: 12px;
+/* ── Doctor cards (booking paso 2) — grid de tarjetas grandes ── */
+.ak-doctor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.ak-doctor-card {
+  background: var(--card-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  text-align: center;
   font-family: var(--sf);
+  color: inherit;
+  transition: all 0.15s;
 }
-.ak-doctor-option:hover    { border-color: rgba(0,113,227,0.4); background: #fff; }
-.ak-doctor-option.selected { border-color: var(--accent); background: rgba(0,113,227,0.04); }
+.ak-doctor-card:hover {
+  border-color: rgba(0,113,227,0.4);
+  background: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+}
+.ak-doctor-card.selected { border-color: var(--accent); background: rgba(0,113,227,0.04); }
 
-.ak-doctor-avatar-wrap {
-  position: relative; width: 40px; height: 40px; flex-shrink: 0;
-}
-.ak-doctor-avatar {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: linear-gradient(135deg, #007aff, #5ac8fa);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 14px; font-weight: 600; flex-shrink: 0;
+.ak-doctor-card-photo-wrap {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
   overflow: hidden;
+  flex-shrink: 0;
+  border: 3px solid var(--border);
 }
-.ak-doctor-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.ak-doctor-name { font-size: 14px; font-weight: 600; color: var(--text1); }
-.ak-doctor-spec { font-size: 12px; color: var(--text2); }
-.ak-doctor-info { flex: 1; }
-
-.ak-radio-dot {
-  margin-left: auto; width: 20px; height: 20px; border-radius: 50%;
-  border: 1.5px solid var(--text3);
+.ak-doctor-card-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ak-doctor-card-avatar {
+  width: 100%; height: 100%;
+  background: linear-gradient(135deg, #007aff, #5ac8fa);
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s; flex-shrink: 0;
+  font-size: 48px; font-weight: 600;
 }
-.ak-doctor-option.selected .ak-radio-dot { border-color: var(--accent); background: var(--accent); }
-.ak-radio-inner { width: 8px; height: 8px; border-radius: 50%; background: #fff; opacity: 0; }
-.ak-doctor-option.selected .ak-radio-inner { opacity: 1; }
+.ak-doctor-card-name { font-size: 1.2rem; font-weight: 600; color: var(--text1); line-height: 1.3; }
+.ak-doctor-card-spec { font-size: 0.875rem; color: var(--text2); line-height: 1.3; }
+
+/* Pantallas muy angostas: encoge la foto para que nunca desborde */
+@media (max-width: 380px) {
+  .ak-doctor-grid { grid-template-columns: 1fr; }
+  .ak-doctor-card-photo-wrap { width: 128px; height: 128px; }
+}
 
 /* ── Date cards (booking paso 3) ── */
 .ak-date-grid {

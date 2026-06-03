@@ -156,7 +156,7 @@ async function renderDentistStep(container, selection, { next }) {
       return;
     }
 
-    container.innerHTML = dentists.map((d) => {
+    container.innerHTML = '<div class="ak-doctor-grid">' + dentists.map((d) => {
       const fullName = `${d.nombre} ${d.apellido ?? ''}`.trim();
       const initials = fullName.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
       const specialty = d.especialidad || 'Odontología';
@@ -165,29 +165,24 @@ async function renderDentistStep(container, selection, { next }) {
       const photoHtml = d.photo_url
         ? `<img src="${escapeHtml('/api' + d.photo_url)}"
                 alt="${escapeHtml(fullName)}"
-                style="width:100%;height:100%;object-fit:cover;border-radius:50%;"
+                class="ak-doctor-card-photo"
                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
         : '';
-      const avatarHtml = `<div class="ak-doctor-avatar"${d.photo_url ? ' style="display:none"' : ''}>${escapeHtml(initials)}</div>`;
+      const avatarHtml = `<div class="ak-doctor-card-avatar"${d.photo_url ? ' style="display:none"' : ''}>${escapeHtml(initials)}</div>`;
 
       return `
-        <div class="ak-doctor-option${isSelected ? ' selected' : ''}" data-id="${escapeHtml(String(d.id))}">
-          <div class="ak-doctor-avatar-wrap">
+        <button type="button" class="ak-doctor-card${isSelected ? ' selected' : ''}" data-id="${escapeHtml(String(d.id))}">
+          <div class="ak-doctor-card-photo-wrap">
             ${photoHtml}
             ${avatarHtml}
           </div>
-          <div class="ak-doctor-info">
-            <div class="ak-doctor-name">${escapeHtml(fullName)}</div>
-            <div class="ak-doctor-spec">${escapeHtml(specialty)}</div>
-          </div>
-          <div class="ak-radio-dot${isSelected ? ' selected' : ''}">
-            <div class="ak-radio-inner"></div>
-          </div>
-        </div>
+          <div class="ak-doctor-card-name">${escapeHtml(fullName)}</div>
+          <div class="ak-doctor-card-spec">${escapeHtml(specialty)}</div>
+        </button>
       `;
-    }).join('');
+    }).join('') + '</div>';
 
-    container.querySelectorAll('.ak-doctor-option').forEach((el) => {
+    container.querySelectorAll('.ak-doctor-card').forEach((el) => {
       el.addEventListener('click', () => {
         const id = el.dataset.id;
         selection.dentist = dentists.find((d) => String(d.id) === id);
