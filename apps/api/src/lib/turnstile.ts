@@ -12,7 +12,7 @@
  * - Mockeable en tests vía setTurnstileVerifier().
  */
 
-import { config, features } from './config.js';
+import { config } from './config.js';
 import { logger } from './logger.js';
 
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
@@ -59,9 +59,11 @@ let _verifier: TurnstileVerifier = new CloudflareTurnstileVerifier();
 /**
  * ¿Está activo el enforcement de Turnstile?
  * Solo cuando hay TURNSTILE_SECRET configurado (obligatorio en producción).
+ * Se lee `config` en vivo (no `features`, que se congela al importar) para
+ * permitir activarlo en tests.
  */
 export function isEnforced(): boolean {
-  return features.turnstileConfigured;
+  return !!config.TURNSTILE_SECRET;
 }
 
 export async function verifyTurnstile(
