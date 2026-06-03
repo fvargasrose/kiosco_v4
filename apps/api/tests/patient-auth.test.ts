@@ -351,33 +351,23 @@ describe('POST /auth/request-otp - registro de Habeas Data', () => {
 });
 
 describe('POST /auth/request-otp - rate limiting', () => {
-  it('4to intento desde mismo phone es bloqueado (limit=3)', async () => {
-    for (let i = 0; i < 3; i++) {
-      const r = await app.inject({
-        method: 'POST',
-        url: '/auth/request-otp',
-        payload: {
-          phone: MOCK_PATIENT.phone,
-          consent: true,
-          policy_version: POLICY_VERSION,
-          policy_hash: POLICY_HASH,
-        },
-      });
-      expect(r.statusCode).toBe(200);
-    }
+  // §7.2: cooldown de 1 solicitud por teléfono cada 60s → el 2º intento
+  // inmediato (mismo teléfono) se bloquea con 429 + retry_after.
+  it('2º intento inmediato del mismo teléfono es bloqueado por cooldown', async () => {
+    const payload = {
+      phone: MOCK_PATIENT.phone,
+      consent: true,
+      policy_version: POLICY_VERSION,
+      policy_hash: POLICY_HASH,
+    };
 
-    const r4 = await app.inject({
-      method: 'POST',
-      url: '/auth/request-otp',      payload: {
-        phone: MOCK_PATIENT.phone,
-        consent: true,
-        policy_version: POLICY_VERSION,
-        policy_hash: POLICY_HASH,
-      },
-    });
-    expect(r4.statusCode).toBe(429);
-    expect(r4.json().error).toBe('RATE_LIMIT');
-    expect(typeof r4.json().retry_after_seconds).toBe('number');
+    const r1 = await app.inject({ method: 'POST', url: '/auth/request-otp', payload });
+    expect(r1.statusCode).toBe(200);
+
+    const r2 = await app.inject({ method: 'POST', url: '/auth/request-otp', payload });
+    expect(r2.statusCode).toBe(429);
+    expect(r2.json().error).toBe('RATE_LIMIT');
+    expect(typeof r2.json().retry_after_seconds).toBe('number');
   });
 });
 
