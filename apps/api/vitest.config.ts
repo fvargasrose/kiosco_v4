@@ -16,6 +16,10 @@ export default defineConfig({
       // Secreto de eventos de test: permite que los tests de webhook (que firman
       // el payload) realmente se ejecuten en vez de saltarse por falta de secreto.
       WOMPI_EVENTS_SECRET: 'test_events_secret',
+      // Hito A: el registro público (/kiosk/register) está gobernado por este
+      // flag; se activa en tests para validar la ruta. El caso desactivado (403)
+      // se cubre en patient-register.test.ts mutando config en runtime.
+      FEATURE_REGISTRO: 'true',
     },
   },
 });

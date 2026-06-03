@@ -18,11 +18,10 @@ import type { FastifyInstance } from 'fastify';
 import { createHash } from 'crypto';
 import { buildServer } from '../src/server.js';
 import { db } from '../src/lib/db.js';
-import { signKioskToken } from '../src/lib/jwt.js';
+import { config } from '../src/lib/config.js';
 import { _resetMockDataForTests } from '../src/lib/dentalink.js';
 
 let app: FastifyInstance;
-let kioskToken: string;
 
 const VALID_BODY = {
   cedula:          '9876543210',
@@ -57,16 +56,7 @@ beforeAll(async () => {
     );
   }
 
-  // Kiosco de prueba
-  await db.query(`DELETE FROM kiosks WHERE name = 'REG-Test'`);
-  const k = await db.query<{ id: string }>(
-    `INSERT INTO kiosks (name, token_hash, token_expires_at, is_active)
-     VALUES ('REG-Test', $1, now() + interval '1 day', true)
-     RETURNING id`,
-    [createHash('sha256').update('reg-kiosk').digest('hex')],
-  );
-  const kt = await signKioskToken({ kioskId: k.rows[0]!.id, kioskName: 'REG-Test' });
-  kioskToken = kt.token;
+  // Hito A: el registro es web público; no se crea kiosco ni token de kiosco.
 });
 
 afterAll(async () => {
@@ -83,7 +73,7 @@ function post(body: unknown) {
   return app.inject({
     method: 'POST',
     url: '/kiosk/register',
-    headers: { Authorization: `Bearer ${kioskToken}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
@@ -91,14 +81,24 @@ function post(body: unknown) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('POST /kiosk/register', () => {
-  it('401 sin kiosk token', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/kiosk/register',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(VALID_BODY),
-    });
-    expect(res.statusCode).toBe(401);
+  // Hito A (Opción A): el registro es PÚBLICO (sin kiosk_token), gobernado por
+  // FEATURE_REGISTRO. Se reemplaza la antigua aserción "401 sin kiosk token".
+  it('no exige kiosk token: una solicitud sin auth llega a validación (no 401)', async () => {
+    const res = await post({}); // body vacío → debe fallar validación, NO 401
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('VALIDATION_ERROR');
+  });
+
+  it('403 FEATURE_DISABLED cuando FEATURE_REGISTRO está apagado', async () => {
+    const original = config.FEATURE_REGISTRO;
+    (config as { FEATURE_REGISTRO: boolean }).FEATURE_REGISTRO = false;
+    try {
+      const res = await post(VALID_BODY);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe('FEATURE_DISABLED');
+    } finally {
+      (config as { FEATURE_REGISTRO: boolean }).FEATURE_REGISTRO = original;
+    }
   });
 
   it('400 campo obligatorio faltante (nombres vacío)', async () => {
