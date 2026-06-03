@@ -148,6 +148,13 @@ function loadConfig(): Config {
     process.exit(1);
   }
 
+  // En producción, Turnstile es obligatorio (anti-abuso de OTP en web pública).
+  // En dev/test/staging es opcional: si falta, el enforcement se omite.
+  if (parsed.data.NODE_ENV === 'production' && !parsed.data.TURNSTILE_SECRET) {
+    console.error('\n❌ TURNSTILE_SECRET es obligatorio en producción (anti-abuso OTP).\n');
+    process.exit(1);
+  }
+
   return parsed.data;
 }
 
