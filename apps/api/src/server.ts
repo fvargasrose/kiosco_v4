@@ -13,6 +13,7 @@ import sensible from '@fastify/sensible';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { createReadStream, existsSync } from 'node:fs';
 
 import { config } from './lib/config.js';
@@ -68,6 +69,39 @@ export async function buildServer() {
     limits: {
       fileSize: config.UPLOADS_MAX_BYTES,
       files: 1,
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Rate limiting global por IP (anti-abuso / DDoS de aplicación)
+  // ---------------------------------------------------------------------------
+  // Store en Redis (compartido entre instancias). La IP del cliente proviene de
+  // X-Forwarded-For (trustProxy=true) → en prod, Cloudflare/Caddy la propagan.
+  //
+  // - allowList: se EXCLUYE el loopback (health checks internos del contenedor y
+  //   los tests por app.inject) y cualquier ruta /health. El rate-limit NUNCA
+  //   afecta a /health.
+  // - max por ruta: las rutas sensibles tienen un techo más bajo que el global.
+  const GLOBAL_MAX = 300; // por minuto, por IP (backstop)
+  const ROUTE_MAX: Record<string, number> = {
+    'POST:/auth/request-otp': 10,
+    'POST:/auth/verify-otp':  20,
+    'POST:/admin/auth/login': 10,
+    'POST:/me/payments':      15,
+  };
+  const isLoopback = (ip: string): boolean =>
+    ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.');
+
+  await app.register(rateLimit, {
+    global: true,
+    redis: redis.getClient(),
+    nameSpace: 'dk-rl:',
+    timeWindow: '1 minute',
+    keyGenerator: (req) => req.ip,
+    allowList: (req) => isLoopback(req.ip) || req.url.startsWith('/health'),
+    max: (req) => {
+      const route = `${req.method}:${req.routeOptions?.url ?? req.url}`;
+      return ROUTE_MAX[route] ?? GLOBAL_MAX;
     },
   });
 
