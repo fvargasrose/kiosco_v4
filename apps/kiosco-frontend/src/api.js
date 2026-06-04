@@ -1,10 +1,20 @@
 /**
- * Cliente HTTP del kiosco.
- * Maneja kiosk_token (permanente, en sessionStorage) y patient_session_token
- * (efímero, en memoria solo).
+ * Cliente HTTP del paciente (web pública).
+ *
+ * Modelo web (Hitos A–C, Opción A): ya NO hay kiosk_token. El arranque usa
+ * rutas públicas (/public/*) y el control de acceso recae en rate-limit + OTP +
+ * Turnstile + anti-enumeración (backend).
+ *
+ * Sesión de paciente: el access token (JWT) se persiste en sessionStorage para
+ * sobrevivir a refresh de la pestaña y a cambios de app en móvil (§10). Se borra
+ * al cerrar la pestaña o al hacer logout. La renovación deslizante usa
+ * /auth/refresh.
  */
 
 const BASE = '/api';
+
+const TOKEN_KEY = 'dk_patient_token';
+const EXPIRES_KEY = 'dk_patient_expires';
 
 export class ApiError extends Error {
   constructor(status, body) {
@@ -16,29 +26,31 @@ export class ApiError extends Error {
 
 class ApiClient {
   constructor() {
-    // Kiosk token: persiste en sessionStorage para sobrevivir refresh
-    // de la pestaña pero no entre cierres de navegador.
-    this.kioskToken = sessionStorage.getItem('kiosk_token') || null;
-    // Patient session: solo en memoria. Si el usuario cierra/refresca, se pierde
-    // (que es lo deseado en un kiosco).
-    this.patientToken = null;
+    // Patient session: persiste en sessionStorage (sobrevive refresh y cambios
+    // de app, no al cierre de la pestaña). Antes vivía solo en memoria.
+    this.patientToken = sessionStorage.getItem(TOKEN_KEY) || null;
+    this.patientExpiresAt = sessionStorage.getItem(EXPIRES_KEY) || null;
   }
 
-  setKioskToken(token) {
-    this.kioskToken = token;
+  setPatientToken(token, expiresAt = null) {
+    this.patientToken = token;
+    this.patientExpiresAt = expiresAt;
     if (token) {
-      sessionStorage.setItem('kiosk_token', token);
+      sessionStorage.setItem(TOKEN_KEY, token);
+      if (expiresAt) sessionStorage.setItem(EXPIRES_KEY, expiresAt);
+      else sessionStorage.removeItem(EXPIRES_KEY);
     } else {
-      sessionStorage.removeItem('kiosk_token');
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(EXPIRES_KEY);
     }
   }
 
-  setPatientToken(token) {
-    this.patientToken = token;
+  clearPatientSession() {
+    this.setPatientToken(null);
   }
 
-  clearPatientSession() {
-    this.patientToken = null;
+  get hasSession() {
+    return !!this.patientToken;
   }
 
   async _fetch(path, opts = {}) {
@@ -48,11 +60,8 @@ class ApiClient {
       ...(opts.headers || {}),
     };
 
-    // Prioridad: patient session > kiosk token
     if (opts._usePatient && this.patientToken) {
       headers['Authorization'] = `Bearer ${this.patientToken}`;
-    } else if (opts._useKiosk && this.kioskToken) {
-      headers['Authorization'] = `Bearer ${this.kioskToken}`;
     }
 
     const res = await fetch(`${BASE}${path}`, {
@@ -75,40 +84,23 @@ class ApiClient {
     return body;
   }
 
-  // ===== Kiosk =====
+  // ===== Bootstrap / config pública (sin token) =====
   async bootstrap() {
-    return this._fetch('/kiosk/bootstrap', { _useKiosk: true });
+    return this._fetch('/public/bootstrap');
   }
 
   // ===== Patient auth =====
-  async requestOtp({ phone, policyVersion, policyHash }) {
-    return this._fetch('/auth/request-otp', {
-      method: 'POST',
-      body: {
-        phone,
-        consent: true,
-        policy_version: policyVersion,
-        policy_hash: policyHash,
-      },
-      _useKiosk: true,
-    });
-  }
-
-  async loginDirect({ phone, policyVersion, policyHash }) {
-    const res = await this._fetch('/auth/login-direct', {
-      method: 'POST',
-      body: {
-        phone,
-        consent: true,
-        policy_version: policyVersion,
-        policy_hash: policyHash,
-      },
-      _useKiosk: true,
-    });
-    if (res.session_token) {
-      this.setPatientToken(res.session_token);
-    }
-    return res;
+  async requestOtp({ phone, policyVersion, policyHash, turnstileToken }) {
+    const body = {
+      phone,
+      consent: true,
+      policy_version: policyVersion,
+      policy_hash: policyHash,
+    };
+    // Token de Cloudflare Turnstile (anti-abuso). El backend lo exige cuando
+    // está configurado (producción); en dev sin secret se ignora.
+    if (turnstileToken) body.turnstile_token = turnstileToken;
+    return this._fetch('/auth/request-otp', { method: 'POST', body });
   }
 
   async verifyOtp({ requestId, code }) {
@@ -117,9 +109,28 @@ class ApiClient {
       body: { request_id: requestId, code },
     });
     if (res.session_token) {
-      this.setPatientToken(res.session_token);
+      this.setPatientToken(res.session_token, res.expires_at ?? null);
     }
     return res;
+  }
+
+  /**
+   * Renueva la sesión deslizante (§10). Devuelve true si se renovó, false si la
+   * sesión ya no es válida (el llamador debe redirigir a login).
+   */
+  async refreshSession() {
+    if (!this.patientToken) return false;
+    try {
+      const res = await this._fetch('/auth/refresh', { method: 'POST', _usePatient: true });
+      if (res.session_token) {
+        this.setPatientToken(res.session_token, res.expires_at ?? null);
+        return true;
+      }
+      return false;
+    } catch {
+      this.clearPatientSession();
+      return false;
+    }
   }
 
   async logout() {
@@ -198,24 +209,21 @@ class ApiClient {
     return this._fetch(`/me/booking/slots?${qs.toString()}`, { _usePatient: true });
   }
 
-  // ===== Hito 9: Registro de paciente nuevo =====
+  // ===== Hito 9: Registro de paciente nuevo (ruta pública gobernada por FEATURE_REGISTRO) =====
   async registerPatient(data) {
     return this._fetch('/kiosk/register', {
       method: 'POST',
       body: data,
-      _useKiosk: true,
     });
   }
 
-  // ===== Hito 9: Standby =====
+  // ===== Standby (config pública, sin token) =====
   async getStandbyConfig() {
-    return this._fetch('/kiosk/standby', { _useKiosk: true });
+    return this._fetch('/public/standby');
   }
 
   async downloadStandbyMedia() {
-    const headers = {};
-    if (this.kioskToken) headers['Authorization'] = `Bearer ${this.kioskToken}`;
-    const res = await fetch(`${BASE}/kiosk/standby/media`, { headers });
+    const res = await fetch(`${BASE}/public/standby/media`);
     if (!res.ok) throw new ApiError(res.status, null);
     return res.blob();
   }
