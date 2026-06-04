@@ -49,6 +49,10 @@ const ConfigSchema = z.object({
 
   JWT_KIOSK_TTL_DAYS: z.coerce.number().int().positive().default(90),
   JWT_PATIENT_SESSION_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+  // Máximo absoluto de vida de una sesión de paciente (web pública, §10): por
+  // mucho que se renueve con /auth/refresh (sesión deslizante), nunca supera
+  // este tope contado desde el login original (patient_sessions.created_at).
+  JWT_PATIENT_SESSION_ABSOLUTE_MAX_HOURS: z.coerce.number().int().positive().default(8),
   JWT_ADMIN_SESSION_TTL_HOURS: z.coerce.number().int().positive().default(8),
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(5),
 

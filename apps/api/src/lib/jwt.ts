@@ -154,3 +154,32 @@ export async function verifyPatientSession(token: string): Promise<PatientSessio
   });
   return payload as PatientSessionClaims;
 }
+
+/**
+ * Re-firma una sesión de paciente CONSERVANDO el mismo jti (sesión deslizante,
+ * §10). A diferencia de signPatientSession, no genera un jti nuevo ni una fila
+ * nueva: el llamador (POST /auth/refresh) actualiza expires_at de la fila
+ * existente en patient_sessions. El máximo absoluto se ancla en created_at, que
+ * no cambia entre refrescos.
+ */
+export async function refreshPatientSession(payload: {
+  dentalinkPatientId: string;
+  kioskId: string | null;
+  jti: string;
+  expiresAt: Date;
+}): Promise<{ token: string; expiresAt: Date }> {
+  const token = await new SignJWT({
+    kiosk_id: payload.kioskId ?? null,
+    jti: payload.jti,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(payload.dentalinkPatientId)
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE_PATIENT)
+    .setIssuedAt()
+    .setExpirationTime(payload.expiresAt)
+    .setJti(payload.jti)
+    .sign(SECRET);
+
+  return { token, expiresAt: payload.expiresAt };
+}
