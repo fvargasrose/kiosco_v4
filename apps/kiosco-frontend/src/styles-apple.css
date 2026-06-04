@@ -583,6 +583,21 @@ body.theme-apple {
   .ak-toggle { display: none; }
 }
 
+/* Pantallas muy angostas (≈360px): una sola columna para no apretar las tarjetas. */
+@media (max-width: 400px) {
+  .ak-action-grid { grid-template-columns: 1fr; }
+  .ak-slot-grid   { grid-template-columns: repeat(2,1fr); }
+}
+
+/* Objetivos táctiles cómodos en táctil (≥44px) — accesibilidad (Hito D). */
+@media (max-width: 900px) and (pointer: coarse) {
+  .ak-btn-primary,
+  .ak-btn-outline,
+  .ak-bottom-nav-item,
+  .ak-slot-btn,
+  .ak-date-card { min-height: 44px; }
+}
+
 /* ============================================================================
    Calendario de booking — 2 meses, grid 7 columnas (tema apple)
    Portado desde styles.css; colores adaptados a las variables apple.
