@@ -48,6 +48,23 @@ export function getDevOtp(phone: string = MOCK_PHONE): string {
   throw new Error(`No se pudo leer el OTP de dev para ${phone} desde Redis`);
 }
 
+// ── Admin ────────────────────────────────────────────────────────────────────
+export const ADMIN_URL = 'http://localhost:5174';
+export const ADMIN_EMAIL = 'admin@e2e.local';
+export const ADMIN_PASSWORD = 'E2e@Admin2026';
+
+/** Entra al panel admin (admin sin MFA creado por setup.ts) y espera el shell. */
+export async function adminLogin(page: Page): Promise<void> {
+  await page.goto(`${ADMIN_URL}/`);
+  await page.locator('#email').fill(ADMIN_EMAIL);
+  await page.locator('#password').fill(ADMIN_PASSWORD);
+  await page.locator('#login-btn').click();
+  // El shell autenticado tiene el sidebar con la navegación.
+  await expect(
+    page.locator('.sidebar .nav-link', { hasText: 'Transacciones' }),
+  ).toBeAttached();
+}
+
 /** Recorre landing → habeas → OTP hasta dejar al paciente en home. */
 export async function loginByOtp(page: Page): Promise<void> {
   await page.goto('/');

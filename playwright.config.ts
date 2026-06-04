@@ -57,5 +57,11 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 90_000,
     },
+    {
+      command: 'pnpm --filter @dentalkiosco/admin-frontend dev',
+      url: 'http://localhost:5174',
+      reuseExistingServer: true,
+      timeout: 90_000,
+    },
   ],
 });
