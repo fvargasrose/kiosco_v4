@@ -1,20 +1,50 @@
 /**
  * =============================================================================
- * Router — máquina de estados entre pantallas del kiosco
+ * Router con History API — URLs reales (deep-link, back/forward, refresh)
  * =============================================================================
  *
- * Cada "screen" exporta una función render(container, params, navigate) que:
- *   - Dibuja su UI dentro de container
- *   - Recibe los params que le pasó el navegador
- *   - Recibe navigate() para cambiar a otra pantalla
- *   - Puede retornar una función "cleanup" que se llama al salir de la pantalla
+ * Cada "screen" exporta render(container, params, navigate) que dibuja su UI y
+ * opcionalmente retorna una función cleanup() que se ejecuta al salir.
  *
- * NO hay URLs — el kiosco siempre vive en "/". Sin history API.
- * Esto evita que el usuario use el back-button del browser para violar el flujo.
+ * Web (Hito D): a diferencia del kiosco físico (router sin URL), aquí cada
+ * pantalla tiene una ruta real. navigate() hace pushState; el botón atrás/adel.
+ * del navegador dispara popstate y re-renderiza; un deep-link o un refresh
+ * renderiza directamente la pantalla de la URL (con fallback de Caddy/Vite a
+ * index.html). Los params se guardan en history.state para sobrevivir
+ * back/forward; las pantallas que necesitan params y no los reciben se
+ * autoredirigen (p.ej. login-otp sin request_id → habeas-data).
  */
 
 import { state } from './state.js';
 import { renderClinicHeader } from './components/clinic-header.js';
+
+// Tabla de rutas: nombre de pantalla ↔ path. Orden no relevante (match exacto).
+const ROUTES = [
+  ['standby',      '/'],
+  ['faq',          '/faq'],
+  ['habeas-data',  '/aviso-privacidad'],
+  ['login-cedula', '/ingresar'],
+  ['login-otp',    '/ingresar/codigo'],
+  ['register',     '/registro'],
+  ['home',         '/inicio'],
+  ['appointments', '/citas'],
+  ['treatments',   '/tratamientos'],
+  ['booking',      '/agendar'],
+  ['payment',      '/pagar'],
+  ['profile',      '/perfil'],
+];
+const PATH_BY_NAME = new Map(ROUTES.map(([n, p]) => [n, p]));
+const NAME_BY_PATH = new Map(ROUTES.map(([n, p]) => [p, n]));
+
+export function pathForScreen(name) {
+  return PATH_BY_NAME.get(name) ?? '/';
+}
+
+export function screenForPath(path) {
+  // Normaliza trailing slash (salvo la raíz).
+  const clean = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+  return NAME_BY_PATH.get(clean) ?? null;
+}
 
 const screens = new Map();
 let currentCleanup = null;
@@ -53,12 +83,9 @@ export function getCurrentScreen() {
 }
 
 /**
- * Navega a una pantalla. Limpia la anterior antes.
- *
- * @param {string} name    Nombre de la pantalla registrada
- * @param {object} [params] Datos para pasar a la pantalla
+ * Renderiza una pantalla (sin tocar el historial). Uso interno.
  */
-export async function navigate(name, params = {}) {
+async function renderScreen(name, params) {
   const renderFn = screens.get(name);
   if (!renderFn) {
     console.error(`[router] Pantalla desconocida: ${name}`);
@@ -94,11 +121,50 @@ export async function navigate(name, params = {}) {
         <div class="screen-body">
           <div class="alert alert-error">
             <strong>Error al cargar la pantalla.</strong>
-            Por favor toca en cualquier lugar para volver al inicio.
+            Toca en cualquier lugar para volver al inicio.
           </div>
         </div>
       </div>
     `;
     container.addEventListener('click', () => navigate('standby'), { once: true });
   }
+}
+
+/**
+ * Navega a una pantalla y actualiza la URL.
+ *
+ * @param {string} name      Nombre de la pantalla registrada
+ * @param {object} [params]  Datos para la pantalla (se guardan en history.state)
+ * @param {object} [opts]
+ * @param {boolean} [opts.replace]      replaceState en vez de pushState
+ * @param {boolean} [opts.fromPopstate] true si lo dispara popstate (no toca history)
+ */
+export async function navigate(name, params = {}, opts = {}) {
+  if (!opts.fromPopstate) {
+    const url = pathForScreen(name);
+    const histState = { name, params };
+    if (opts.replace) {
+      history.replaceState(histState, '', url);
+    } else {
+      history.pushState(histState, '', url);
+    }
+  }
+  await renderScreen(name, params);
+}
+
+/**
+ * Inicializa el enrutado: instala el listener de popstate (back/forward del
+ * navegador). Debe llamarse una vez al arrancar.
+ */
+export function initRouter() {
+  window.addEventListener('popstate', (event) => {
+    const st = event.state;
+    if (st && st.name) {
+      void navigate(st.name, st.params ?? {}, { fromPopstate: true });
+    } else {
+      // Entrada sin estado (p.ej. la URL inicial): derivar de la ruta.
+      const name = screenForPath(window.location.pathname) ?? 'standby';
+      void navigate(name, {}, { fromPopstate: true });
+    }
+  });
 }

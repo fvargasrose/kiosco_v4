@@ -17,7 +17,7 @@
 
 import { api, ApiError } from './api.js';
 import { setConfig, subscribe, state, clearPatient } from './state.js';
-import { navigate, registerScreen, getCurrentScreen } from './router.js';
+import { navigate, registerScreen, getCurrentScreen, initRouter, screenForPath } from './router.js';
 import { startIdleTimer, stopIdleTimer } from './idle.js';
 import { toast } from './components/toast.js';
 
@@ -45,6 +45,11 @@ import { renderPaymentApple } from './screens/payment.apple.js';
 // landing al volver a la app.
 const AUTHED_SCREENS = new Set([
   'home', 'appointments', 'treatments', 'booking', 'payment', 'profile',
+]);
+
+// Pantallas públicas a las que se puede llegar por deep-link sin sesión.
+const PUBLIC_SCREENS = new Set([
+  'standby', 'faq', 'habeas-data', 'login-cedula', 'login-otp', 'register',
 ]);
 
 // ===== Registro de pantallas =====
@@ -160,18 +165,26 @@ async function bootstrap() {
   }
   if (config.theme === 'apple') activateAppleTheme();
 
-  // Restaurar sesión persistida: si hay token, validarlo con un refresh. Si
-  // sigue vivo → directo a home; si no → limpiar y mostrar la landing.
+  // Routing real: instalar back/forward y resolver la pantalla inicial según la
+  // URL (deep-link / refresh) y la sesión.
+  initRouter();
+  const urlScreen = screenForPath(window.location.pathname);
+
+  // Restaurar sesión persistida: si hay token, validarlo con un refresh.
   if (api.hasSession) {
     const ok = await api.refreshSession();
     if (ok && state.patient) {
-      navigate('home');
+      // Respeta el deep-link a una pantalla conocida; '/' o desconocida → home.
+      const target = urlScreen && urlScreen !== 'standby' ? urlScreen : 'home';
+      navigate(target, {}, { replace: true });
       return;
     }
     clearPatient();
   }
 
-  navigate('standby');
+  // Sin sesión: solo pantallas públicas por deep-link; el resto → landing.
+  const target = urlScreen && PUBLIC_SCREENS.has(urlScreen) ? urlScreen : 'standby';
+  navigate(target, {}, { replace: true });
 }
 
 function showConfigurationErrorScreen(root, message) {
