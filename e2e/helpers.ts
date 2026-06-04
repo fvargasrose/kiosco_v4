@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process';
+import { expect, type Page } from '@playwright/test';
 
 /** Paciente mock definido en apps/api/src/lib/dentalink.ts (modo mock). */
 export const MOCK_PHONE = '+573001234567';
@@ -45,4 +46,25 @@ export function getDevOtp(phone: string = MOCK_PHONE): string {
     execSync('sleep 0.5');
   }
   throw new Error(`No se pudo leer el OTP de dev para ${phone} desde Redis`);
+}
+
+/** Recorre landing → habeas → OTP hasta dejar al paciente en home. */
+export async function loginByOtp(page: Page): Promise<void> {
+  await page.goto('/');
+  await expect(page.locator('body')).not.toContainText('no pareado');
+  await page.locator('#standby-start').click();
+
+  await page.locator('#consent-check').check();
+  await page.locator('#continue-btn').click();
+
+  await page.locator('#phone').fill(MOCK_PHONE_LOCAL);
+  await page.locator('#submit-btn').click();
+
+  await expect(page.locator('.otp-inputs')).toBeVisible();
+  const code = getDevOtp();
+  const digits = page.locator('.otp-digit');
+  for (let i = 0; i < 6; i++) {
+    await digits.nth(i).fill(code[i]!);
+  }
+  await expect(page.getByText('Bienvenido de vuelta')).toBeVisible();
 }
