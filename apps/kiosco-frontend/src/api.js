@@ -55,10 +55,16 @@ class ApiClient {
 
   async _fetch(path, opts = {}) {
     const headers = {
-      'Content-Type': 'application/json',
       Accept: 'application/json',
       ...(opts.headers || {}),
     };
+
+    // Solo declaramos JSON cuando hay cuerpo: con Content-Type: application/json
+    // y body vacío, Fastify responde 400 ("body cannot be empty"). Esto afectaba
+    // a POSTs sin payload como /auth/refresh y /auth/logout.
+    if (opts.body) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (opts._usePatient && this.patientToken) {
       headers['Authorization'] = `Bearer ${this.patientToken}`;
