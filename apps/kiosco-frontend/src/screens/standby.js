@@ -1,8 +1,9 @@
 /**
- * Pantalla standby — atractor inicial.
+ * Pantalla de landing pública — primera pantalla al entrar a la web.
+ * Muestra la marca de la clínica (logo + nombre) y un acceso para comenzar.
  * Soporta 3 modos: mensaje (texto), gif (imagen animada), video.
  * El media se cachea en IndexedDB para evitar descargas repetidas.
- * Cualquier toque inicia el flujo de identificación.
+ * Cualquier toque/clic inicia el flujo de identificación (Habeas Data → login).
  */
 
 import { state } from '../state.js';
@@ -148,7 +149,7 @@ function renderFrame(container, { mode, title, subtitle, mediaEl }, navigate) {
           <p class="standby-subtitle">${esc(subtitle)}</p>
         `}
         <button type="button" class="standby-cta" id="standby-start">
-          Toca para comenzar
+          Comenzar
         </button>
         <div class="standby-footer">
           <button type="button" class="link-btn" id="open-faq">
