@@ -3,8 +3,8 @@
 # =============================================================================
 # Expone postgres y redis al host para que la API corra fuera de Docker.
 # Usa puertos alternativos para no chocar con servicios existentes:
-#   - postgres: host:5433 → container:5432
-#   - redis:    host:6380 → container:6379
+#   - postgres: host:5434 → container:5432   (clon kiosco_v4; antes 5433)
+#   - redis:    host:6381 → container:6379   (clon kiosco_v4; antes 6380)
 #
 # Este archivo es cargado automáticamente por docker compose.
 # NO commitear si contiene secretos. Está en .gitignore por omisión.
@@ -12,8 +12,8 @@
 services:
   postgres:
     ports:
-      - "5433:5432"
+      - "5434:5432"   # antes 5433:5432
 
   redis:
     ports:
-      - "6380:6379"
+      - "6381:6379"   # antes 6380:6379

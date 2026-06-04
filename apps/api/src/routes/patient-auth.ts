@@ -40,6 +40,7 @@ import {
   verifyPatientSession,
 } from '../lib/jwt.js';
 import { config } from '../lib/config.js';
+import { verifyTurnstile, isEnforced as isTurnstileEnforced } from '../lib/turnstile.js';
 
 // ----- Schemas -----
 
@@ -101,15 +102,18 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     const { phone, policy_version, policy_hash } = parsed.data;
 
-    // 2. Acceso web público (Opción A): ya NO se requiere kiosk_token. El control
-    //    de acceso recae en rate-limiting + Turnstile (Hito B) + anti-enumeración.
-    //    Las sesiones/registros originados aquí van con kiosk_id = NULL.
-    //    HOOK Turnstile: parsed.data.turnstile_token se validará en el Hito B.
-
-    // 3. Rate limiting (buckets por teléfono e IP)
+    // 2. Rate limiting anti-abuso (plan_abierto.md §7.2). Acceso web público
+    //    (Opción A): el muro ya no es el kiosk_token sino estos buckets +
+    //    Turnstile + anti-enumeración. Los buckets se evalúan ANTES de Turnstile
+    //    para no gastar siteverify ante un flood, y antes de cualquier
+    //    lookup/envío. El bucket global protege contra abuso distribuido del SMS.
     const buckets = [
-      { key: `otp:phone:${phone}`, max: config.RATE_LIMIT_OTP_PER_PHONE_PER_HOUR, secs: 3600 },
-      { key: `otp:ip:${request.ip}`, max: config.RATE_LIMIT_OTP_PER_IP_PER_HOUR, secs: 3600 },
+      { key: `otp:cooldown:${phone}`, max: 1,                                          secs: 60,    type: 'phone_cooldown' },
+      { key: `otp:phone:${phone}`,    max: config.RATE_LIMIT_OTP_PER_PHONE_PER_HOUR,   secs: 3600,  type: 'phone_hour' },
+      { key: `otp:phoneday:${phone}`, max: 5,                                          secs: 86400, type: 'phone_day' },
+      { key: `otp:ip:${request.ip}`,  max: 5,                                          secs: 3600,  type: 'ip_hour' },
+      { key: `otp:ipday:${request.ip}`, max: 20,                                       secs: 86400, type: 'ip_day' },
+      { key: `otp:global`,            max: 100,                                        secs: 3600,  type: 'global_hour' },
     ];
     for (const b of buckets) {
       const rl = await db.query<{ allowed: boolean; retry_after_secs: number }>(
@@ -120,14 +124,37 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
         await audit({
           actorType: 'system',
           action: 'patient.otp.rate_limit',
-          metadata: { bucket_type: b.key.split(':')[1] },
+          metadata: { bucket_type: b.type },
           result: 'denied',
           ip: request.ip,
         });
+        // Alerta: el cap global indica un posible ataque al envío de SMS.
+        if (b.type === 'global_hour') {
+          logger.error(
+            { bucket: 'otp:global', max: b.max },
+            'ALERTA: cap global de OTP superado — posible abuso del envío de SMS',
+          );
+        }
         return reply.code(429).send({
           error: 'RATE_LIMIT',
           retry_after_seconds: rl.rows[0]?.retry_after_secs ?? b.secs,
         });
+      }
+    }
+
+    // 3. Turnstile (anti-bot). Se valida con siteverify ANTES de cualquier
+    //    lookup en Dentalink o envío de SMS/email. Solo activo si está
+    //    configurado (obligatorio en producción; omitido en dev/test sin secret).
+    if (isTurnstileEnforced()) {
+      const ok = await verifyTurnstile(parsed.data.turnstile_token, request.ip);
+      if (!ok) {
+        await audit({
+          actorType: 'system',
+          action: 'patient.otp.turnstile_failed',
+          result: 'denied',
+          ip: request.ip,
+        });
+        return reply.code(403).send({ error: 'TURNSTILE_REQUIRED' });
       }
     }
 
