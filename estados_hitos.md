@@ -77,6 +77,28 @@
 `license/*`. No se añadieron migraciones (el máximo absoluto usa `created_at`
 existente).
 
+### Hito D — routing / responsive
+
+9. **[Routing] Params no viajan en la URL.** Los params de pantalla (request_id,
+   policyHash, montos de pago) se guardan en `history.state` y sobreviven a
+   back/forward, **pero NO a un deep-link/refresh "en frío"** de una URL que
+   necesita params (`/ingresar/codigo`, `/pagar`). En ese caso la pantalla se
+   **autoredirige** (login-otp→habeas-data, payment→treatments). Es el
+   comportamiento intencional (no se puede reanudar un OTP a medias por URL),
+   pero **revisar** que sea aceptable. Las rutas de datos (`/citas`,
+   `/tratamientos`, `/inicio`) sí restauran del todo con la sesión persistida.
+10. **[Infra] Fallback SPA.** El deep-link funciona en dev por el fallback SPA de
+    Vite. En **producción depende del `try_files … index.html` de Caddy** para el
+    front del paciente (lo asume `plan_abierto.md`). **Confirmar en Hito F** que
+    el `Caddyfile.prod` sirve `index.html` para rutas como `/citas`.
+11. **[Responsive] Hallazgo:** el front del paciente **ya era responsive** (el
+    tema apple traía sidebar colapsable @900px y bottom-nav @600px). Lo verifiqué
+    con un test de **overflow horizontal en 360/768/1280** (todas las pantallas
+    clave, 0 overflow). Solo añadí: columna única <400px y `min-height:44px` en
+    `pointer:coarse`. El "0 media queries" del plan era del **admin** (Hito E),
+    no del kiosco. El test de overflow corre **solo en Desktop chromium** con
+    viewports forzados (las reglas `pointer:coarse` no las ejercita ese test).
+
 ---
 
 ## Hito C — Front web del paciente (núcleo)
@@ -144,19 +166,37 @@ existente).
 
 ## Hito D — Responsive + routing completo
 
-**Estado:** ⏳ pendiente
+**Estado:** ✅ completo · rama `hito-d-responsive-routing` (NO fusionada, desde C)
 
 ### Decisiones tomadas (dadas por el usuario)
 - Routing con **History API** (Caddy ya tiene `try_files`).
 - Mantener zoom habilitado (quitar `user-scalable=no`).
 
 ### Archivos creados/modificados
-_(pendiente)_
+- `src/router.js` — History API: tabla de rutas nombre↔path, push/replaceState,
+  `history.state` con params, `initRouter()`/popstate.
+- `src/main.js` — resuelve pantalla inicial por URL+sesión; `initRouter()`.
+- `index.html` — quita `user-scalable=no, maximum-scale=1`; `viewport-fit=cover`.
+- `src/styles-apple.css` — columna única <400px; objetivos táctiles ≥44px.
+- `e2e/responsive-routing.spec.ts` — **nuevo**; `e2e/helpers.ts` (loginByOtp).
+
+### Decisiones propias
+- Rutas en español: `/inicio`, `/citas`, `/tratamientos`, `/agendar`, `/pagar`,
+  `/perfil`, `/ingresar`, `/ingresar/codigo`, `/registro`, `/aviso-privacidad`.
+- Lógica de pantalla inicial (deep-link respetado si la pantalla es conocida).
+- Responsive: el frontend ya era responsive → verificación por overflow +
+  endurecimiento táctil mínimo (ver auditoría #11).
+
+### Resultado test / typecheck / build (números reales)
+- Backend: **280 tests / 20 archivos** verdes (sin cambios en D).
+- Typecheck API: **OK**. Builds kiosco + admin: **OK**.
+- E2E: **16 verdes + 2 skipped** (overflow corre solo en Desktop) en total
+  (patient-flow 9 + responsive-routing).
 
 ### DoD punto por punto
-- [ ] URLs reales operativas (deep-link, back, refresh).
-- [ ] Responsive correcto en 360/768/1280.
-- [ ] E2E routing + responsive verdes.
+- [x] URLs reales operativas (deep-link, back, refresh). *(E2E routing, 3 perfiles)*
+- [x] Responsive correcto en 360/768/1280. *(E2E overflow, 0 scroll horizontal)*
+- [x] E2E routing + responsive verdes.
 
 ---
 
