@@ -2,7 +2,7 @@
  * Pantalla de registro de paciente nuevo.
  *
  * - Formulario único con scroll vertical.
- * - Teclado táctil en pantalla (keyboard.js) para cada campo de texto.
+ * - Teclado nativo del dispositivo (web): el teclado táctil del kiosco se retiró.
  * - Campos con doble caja: cédula, celular, email.
  * - Fecha de nacimiento: tres selectores (DD / MM / AAAA).
  * - Sexo: radio buttons.
@@ -11,7 +11,6 @@
 
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
-import { mountKeyboard } from '../components/keyboard.js';
 
 const MONTHS = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
@@ -169,10 +168,6 @@ export function renderRegister(container, params, navigate) {
       </div>
     </div>
   `;
-
-  // ── Keyboard ────────────────────────────────────────────────────────────────
-  const formEl = container.querySelector('#register-form');
-  const destroyKb = mountKeyboard(formEl);
 
   // ── Radio button visual feedback ─────────────────────────────────────────────
   container.querySelectorAll('input[name=sexo]').forEach((radio) => {
@@ -346,5 +341,5 @@ export function renderRegister(container, params, navigate) {
     navigate('login-cedula', { policyVersion, policyHash });
   });
 
-  return () => destroyKb();
+  return null;
 }

@@ -1,17 +1,21 @@
 /**
- * Pantalla de identificación por teléfono.
- * El paciente sólo escribe su celular; el backend lo busca en Dentalink.
- * (Nombre de archivo conservado para no romper el router.)
+ * Pantalla de identificación por teléfono (web pública).
+ * El paciente escribe su celular; el backend lo busca en Dentalink y envía OTP.
+ *
+ * Web (Opción A): el OTP es OBLIGATORIO (login-direct fue eliminado del backend).
+ * Antes de solicitar el OTP se resuelve el widget de Cloudflare Turnstile cuando
+ * la clínica lo tiene configurado (anti-abuso de SMS).
  */
 
 import { api, ApiError } from '../api.js';
-import { setPatient, state } from '../state.js';
+import { state } from '../state.js';
 import { toast } from '../components/toast.js';
+import { renderTurnstile } from '../lib/turnstile.js';
 
 export function renderLoginCedula(container, params, navigate) {
   const { policyVersion, policyHash } = params;
-  const otpRequired = params.otpRequired !== false;
   const featureRegistro = state.config?.feature_registro === true;
+  const turnstileSitekey = state.config?.turnstile_sitekey || null;
 
   if (!policyVersion || !policyHash) {
     navigate('habeas-data');
@@ -29,7 +33,7 @@ export function renderLoginCedula(container, params, navigate) {
       <div class="screen-body">
         <div class="login-form">
           <p class="subtitle">
-            Ingresa el celular registrado en la clínica.${otpRequired ? '' : ' No se requiere código de verificación.'}
+            Ingresa el celular registrado en la clínica.
           </p>
 
           <div id="form-error" class="form-error" style="display: none;"></div>
@@ -39,14 +43,16 @@ export function renderLoginCedula(container, params, navigate) {
             <div class="phone-input">
               <span class="phone-prefix">+57</span>
               <input type="tel" id="phone" inputmode="numeric" pattern="[0-9]*"
-                     autocomplete="off" placeholder="3001234567"
+                     autocomplete="tel-national" placeholder="3001234567"
                      maxlength="10">
             </div>
-            <div class="form-help">10 dígitos, sin el +57.${otpRequired ? ' Te enviaremos un código por SMS y correo.' : ''}</div>
+            <div class="form-help">10 dígitos, sin el +57. Te enviaremos un código por SMS y correo.</div>
           </div>
 
+          ${turnstileSitekey ? '<div id="turnstile-box" class="turnstile-box"></div>' : ''}
+
           <button type="button" class="btn btn-primary btn-lg btn-full" id="submit-btn">
-            ${otpRequired ? 'Enviar código' : 'Ingresar'}
+            Enviar código
           </button>
 
           ${featureRegistro ? `
@@ -80,6 +86,19 @@ export function renderLoginCedula(container, params, navigate) {
     errorEl.style.display = 'none';
   };
 
+  // Turnstile (solo si la clínica lo tiene configurado).
+  let turnstile = null;
+  if (turnstileSitekey) {
+    const box = container.querySelector('#turnstile-box');
+    renderTurnstile(box, turnstileSitekey)
+      .then((handle) => { turnstile = handle; })
+      .catch(() => {
+        // Si el script de Turnstile no carga, no bloqueamos la UI: el backend
+        // rechazará la solicitud sin token cuando el enforcement esté activo.
+        console.warn('[turnstile] no se pudo inicializar el widget');
+      });
+  }
+
   let submitting = false;
 
   const handleSubmit = async () => {
@@ -94,50 +113,51 @@ export function renderLoginCedula(container, params, navigate) {
       return;
     }
 
+    let turnstileToken = null;
+    if (turnstileSitekey) {
+      turnstileToken = turnstile?.getToken() ?? null;
+      if (!turnstileToken) {
+        showError('Completa la verificación de seguridad e intenta de nuevo.');
+        return;
+      }
+    }
+
     submitting = true;
     submitBtn.disabled = true;
-    submitBtn.textContent = otpRequired ? 'Enviando...' : 'Verificando...';
+    submitBtn.textContent = 'Enviando...';
 
     try {
-      if (otpRequired) {
-        const result = await api.requestOtp({
-          phone: `+57${phoneDigits}`,
-          policyVersion,
-          policyHash,
-        });
-        navigate('login-otp', {
-          requestId: result.request_id,
-          expiresInSeconds: result.expires_in_seconds,
-          maskedPhone: `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`,
-        });
-      } else {
-        const result = await api.loginDirect({
-          phone: `+57${phoneDigits}`,
-          policyVersion,
-          policyHash,
-        });
-        setPatient(result.patient);
-        navigate('home');
-      }
+      const result = await api.requestOtp({
+        phone: `+57${phoneDigits}`,
+        policyVersion,
+        policyHash,
+        turnstileToken,
+      });
+      navigate('login-otp', {
+        requestId: result.request_id,
+        expiresInSeconds: result.expires_in_seconds,
+        maskedPhone: `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`,
+      });
     } catch (err) {
       submitting = false;
       submitBtn.disabled = false;
-      submitBtn.textContent = otpRequired ? 'Enviar código' : 'Ingresar';
+      submitBtn.textContent = 'Enviar código';
+      turnstile?.reset();
 
       if (err instanceof ApiError) {
         if (err.status === 429) {
           showError('Demasiados intentos. Espera unos minutos antes de volver a intentar.');
         } else if (err.status === 401) {
           showError('Si el número está registrado, recibirás un código en breve.');
+        } else if (err.status === 403) {
+          showError('No pudimos verificar que eres una persona. Intenta de nuevo.');
         } else if (err.status === 400) {
           showError('Celular inválido. Verifica el número.');
-        } else if (err.status === 403) {
-          showError('Este kiosco no está autorizado. Contacta a recepción.');
         } else {
           showError('No pudimos procesar la solicitud. Intenta de nuevo.');
         }
       } else {
-        toast('Error de conexión. Verifica la red del kiosco.', 'error');
+        toast('Error de conexión. Verifica tu internet.', 'error');
       }
     }
   };
