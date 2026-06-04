@@ -40,9 +40,9 @@ const handler = () => {
  * Arranca el detector. Solo se invoca DESPUÉS de login del paciente.
  *
  * @param {Object} hooks
- * @param {() => void} hooks.onTimeout   Callback al alcanzar 90s sin actividad.
+ * @param {() => void} hooks.onTimeout   Callback al alcanzar 30 min sin actividad.
  *                                       Típicamente: logout + volver a standby.
- * @param {() => void} [hooks.onWarning] Callback al alcanzar 60s. Default: modal.
+ * @param {() => void} [hooks.onWarning] Callback al alcanzar 28 min. Default: modal.
  */
 export function startIdleTimer(hooks) {
   onTimeout = hooks.onTimeout;
