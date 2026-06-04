@@ -99,6 +99,29 @@ existente).
     no del kiosco. El test de overflow corre **solo en Desktop chromium** con
     viewports forzados (las reglas `pointer:coarse` no las ejercita ese test).
 
+### Hito E — admin responsive
+
+12. **[Test/DB] Admin de prueba creado en la BD de DESARROLLO.** Para el E2E del
+    admin creé `admin@e2e.local` (vía `setup.ts create-admin`, `mfa_required=false`,
+    `must_change_password=true`). **Las credenciales están en `e2e/helpers.ts`**
+    (`E2e@Admin2026`). Es solo para la BD local de dev. **NO debe existir en
+    producción** — revisar/eliminar antes de cualquier despliegue. (El installer
+    crea su propio admin en prod; este es ajeno.)
+13. **[Cobertura/MFA] El E2E del admin NO ejercita el flujo MFA.** Uso un admin
+    **sin MFA** (`mfa_required=false`) para llegar al dashboard, porque enrolar
+    MFA exige generar códigos TOTP. El plan listaba "login + MFA" para el E2E del
+    admin: **queda cubierto login (sin MFA) + shell responsive, NO el camino MFA.**
+    El backend de MFA ya tiene tests unitarios propios (suite de 280).
+14. **[Responsive] Breakpoint admin = 768px.** En **iPad (810px) el admin usa el
+    layout de escritorio** (sidebar fijo 220px), no el off-canvas. Es usable
+    (cabe sidebar + contenido), pero si se quiere drawer también en tablet hay que
+    subir el breakpoint. `must_change_password` **no está gateado** en el backend
+    (preexistente): el admin de prueba entra sin cambiar contraseña.
+15. **[Menor] Config E2E compartida:** añadí el `webServer` del admin (5174) al
+    `playwright.config.ts` común → cualquier corrida de E2E levanta también el
+    admin (unos segundos más). Token admin sigue en `localStorage` (nota de
+    seguridad preexistente del plan §1.4, sin cambios).
+
 ---
 
 ## Hito C — Front web del paciente (núcleo)
@@ -202,11 +225,30 @@ existente).
 
 ## Hito E — Admin responsive
 
-**Estado:** ⏳ pendiente
+**Estado:** ✅ completo · rama `hito-e-admin-responsive` (NO fusionada, desde D
+por la toolchain de Playwright; funcionalmente independiente de C/D)
 
 ### Archivos creados/modificados
-_(pendiente)_
+- `apps/admin-frontend/index.html` — media queries (≤768/≤480); topbar+hamburguesa,
+  sidebar off-canvas + backdrop; `.main { min-width:0 }`; modal/cards full-width móvil.
+- `apps/admin-frontend/src/main.js` — topbar, toggle de navegación, cierre al navegar.
+- `playwright.config.ts` — webServer del admin (5174).
+- `e2e/admin-responsive.spec.ts` — **nuevo**; `e2e/helpers.ts` (adminLogin).
+
+### Decisiones propias
+- Breakpoint off-canvas en **768px** (iPad usa layout de escritorio; ver auditoría #14).
+- Patrón topbar + hamburguesa + backdrop (drawer).
+- E2E con admin **sin MFA** creado por `setup.ts` (ver auditoría #12, #13).
+- Las tablas (`kiosks`, `transactions`) ya traían `overflow-x:auto` y `dentists`
+  ya usaba grid `auto-fill` → no fue necesario tocarlas; solo el shell.
+
+### Resultado test / typecheck / build (números reales)
+- Backend: **280 tests / 20 archivos** verdes (sin cambios en E).
+- Typecheck API: **OK**. Builds kiosco + admin: **OK**.
+- E2E total (C+D+E): **23 verdes + 7 skipped** (skips por gating de viewport).
+  Admin: login+dashboard (3 perfiles), sidebar colapsable (móvil), sidebar fijo
+  (tablet/escritorio), tabla sin overflow (móvil).
 
 ### DoD punto por punto
-- [ ] Admin usable en móvil/tablet.
-- [ ] E2E admin móvil verde.
+- [x] Admin usable en móvil/tablet. *(sidebar off-canvas + media queries)*
+- [x] E2E admin móvil verde. *(admin-responsive.spec.ts)*
