@@ -3,10 +3,12 @@
  * Idle detector
  * =============================================================================
  *
- * Política definida para el Hito 6:
+ * Política web pública (§10) — relajada respecto al kiosco físico:
  *   - Solo se aplica cuando hay sesión de paciente activa.
- *   - 60 segundos sin actividad → mostrar modal de warning (30s para responder).
- *   - 90 segundos sin actividad → cerrar sesión y volver a standby.
+ *   - 28 minutos sin actividad → mostrar modal de warning (2 min para responder).
+ *   - 30 minutos sin actividad → cerrar sesión y volver a la landing.
+ *
+ * (El idle agresivo de kiosco —60/90 s— era hostil en un dispositivo personal.)
  *
  * Eventos considerados "actividad":
  *   pointerdown, touchstart, keydown
@@ -18,8 +20,8 @@
 import { state, recordActivity } from './state.js';
 import { showModal, closeActiveModal } from './components/modal.js';
 
-const WARN_AT_MS = 60_000; // 60s
-const LOGOUT_AT_MS = 90_000; // 90s
+const WARN_AT_MS = 28 * 60_000; // 28 min
+const LOGOUT_AT_MS = 30 * 60_000; // 30 min
 
 let intervalId = null;
 let warningShown = false;
@@ -38,9 +40,9 @@ const handler = () => {
  * Arranca el detector. Solo se invoca DESPUÉS de login del paciente.
  *
  * @param {Object} hooks
- * @param {() => void} hooks.onTimeout   Callback al alcanzar 90s sin actividad.
+ * @param {() => void} hooks.onTimeout   Callback al alcanzar 30 min sin actividad.
  *                                       Típicamente: logout + volver a standby.
- * @param {() => void} [hooks.onWarning] Callback al alcanzar 60s. Default: modal.
+ * @param {() => void} [hooks.onWarning] Callback al alcanzar 28 min. Default: modal.
  */
 export function startIdleTimer(hooks) {
   onTimeout = hooks.onTimeout;

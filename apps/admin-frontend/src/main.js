@@ -29,7 +29,14 @@ function showLogin() {
 function showDashboard(section = 'dashboard') {
   app.innerHTML = `
     <div class="shell">
-      <nav class="sidebar">
+      <header class="topbar">
+        <button class="hamburger" id="nav-toggle" aria-label="Abrir menú" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="topbar-brand">🦷 DentalKiosco</div>
+      </header>
+      <div class="sidebar-backdrop" id="nav-backdrop"></div>
+      <nav class="sidebar" id="sidebar">
         <div class="sidebar-brand">🦷 DentalKiosco</div>
         <button class="nav-link ${section === 'dashboard' ? 'active' : ''}" data-section="dashboard">
           Dashboard
@@ -56,11 +63,23 @@ function showDashboard(section = 'dashboard') {
   `;
 
   const mainContent = app.querySelector('#main-content');
+  const shell = app.querySelector('.shell');
+  const toggle = app.querySelector('#nav-toggle');
+  const backdrop = app.querySelector('#nav-backdrop');
+
+  // Sidebar off-canvas en móvil: abre/cierra con la hamburguesa y el backdrop.
+  const setNav = (open) => {
+    shell.classList.toggle('nav-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  toggle.addEventListener('click', () => setNav(!shell.classList.contains('nav-open')));
+  backdrop.addEventListener('click', () => setNav(false));
 
   const navigate = (s) => {
     app.querySelectorAll('.nav-link[data-section]').forEach((el) => {
       el.classList.toggle('active', el.dataset.section === s);
     });
+    setNav(false); // cerrar el menú móvil al cambiar de sección
     loadSection(s, mainContent, navigate);
   };
 

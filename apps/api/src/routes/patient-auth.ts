@@ -38,6 +38,7 @@ import {
 import {
   signPatientSession,
   verifyPatientSession,
+  refreshPatientSession,
 } from '../lib/jwt.js';
 import { config } from '../lib/config.js';
 import { verifyTurnstile, isEnforced as isTurnstileEnforced } from '../lib/turnstile.js';
@@ -500,5 +501,102 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
     } catch {
       return reply.code(401).send({ error: 'INVALID_TOKEN' });
     }
+  });
+
+  /**
+   * POST /auth/refresh
+   *
+   * Sesión deslizante para la web móvil (§10): emite un access token nuevo
+   * con el MISMO jti y extiende expires_at de la fila en patient_sessions,
+   * acotado por el máximo absoluto (created_at + JWT_PATIENT_SESSION_ABSOLUTE_MAX_HOURS).
+   *
+   * Requiere un token de paciente AÚN VÁLIDO (no expirado, no revocado). No
+   * acepta tokens expirados: el cliente debe refrescar mientras la sesión sigue
+   * viva (visibilitychange/pageshow). Si el token ya expiró o se superó el
+   * máximo absoluto → 401 y el cliente reinicia el login.
+   */
+  app.post('/auth/refresh', async (request, reply) => {
+    const token = extractBearer(request.headers.authorization);
+    if (!token) {
+      return reply.code(401).send({ error: 'UNAUTHORIZED' });
+    }
+
+    let claims;
+    try {
+      claims = await verifyPatientSession(token);
+    } catch {
+      return reply.code(401).send({ error: 'INVALID_OR_EXPIRED' });
+    }
+
+    const sessionRow = await db.query<{
+      revoked_at: Date | null;
+      expires_at: Date;
+      created_at: Date;
+      dentalink_patient_id: string;
+    }>(
+      `SELECT revoked_at, expires_at, created_at, dentalink_patient_id
+       FROM patient_sessions WHERE jti = $1`,
+      [claims.jti],
+    );
+    const session = sessionRow.rows[0];
+
+    if (!session || session.revoked_at || session.expires_at < new Date()) {
+      return reply.code(401).send({ error: 'SESSION_INVALID' });
+    }
+
+    // Máximo absoluto: anclado en created_at del login original (no cambia
+    // entre refrescos, porque conservamos el jti y la fila).
+    const absoluteMax = new Date(
+      session.created_at.getTime() +
+        config.JWT_PATIENT_SESSION_ABSOLUTE_MAX_HOURS * 60 * 60 * 1000,
+    );
+    if (Date.now() >= absoluteMax.getTime()) {
+      // Cerramos la sesión: superó el techo absoluto, debe re-loguearse.
+      await db.query(
+        `UPDATE patient_sessions
+         SET revoked_at = now(), revoked_reason = 'absolute_max_reached'
+         WHERE jti = $1 AND revoked_at IS NULL`,
+        [claims.jti],
+      );
+      await audit({
+        actorType: 'patient',
+        actorId: claims.jti,
+        action: 'patient.session.absolute_max',
+        result: 'denied',
+        ip: request.ip,
+      });
+      return reply.code(401).send({ error: 'SESSION_EXPIRED' });
+    }
+
+    // Nueva expiración deslizante, sin superar el máximo absoluto.
+    const slidingExpiry = new Date(
+      Date.now() + config.JWT_PATIENT_SESSION_TTL_MINUTES * 60 * 1000,
+    );
+    const newExpiresAt = slidingExpiry < absoluteMax ? slidingExpiry : absoluteMax;
+
+    const { token: newToken, expiresAt } = await refreshPatientSession({
+      dentalinkPatientId: claims.sub,
+      kioskId: claims.kiosk_id,
+      jti: claims.jti,
+      expiresAt: newExpiresAt,
+    });
+
+    await db.query(
+      `UPDATE patient_sessions SET expires_at = $1 WHERE jti = $2`,
+      [newExpiresAt, claims.jti],
+    );
+
+    await audit({
+      actorType: 'patient',
+      actorId: claims.jti,
+      action: 'patient.session.refreshed',
+      result: 'success',
+      ip: request.ip,
+    });
+
+    return reply.send({
+      session_token: newToken,
+      expires_at: expiresAt.toISOString(),
+    });
   });
 }

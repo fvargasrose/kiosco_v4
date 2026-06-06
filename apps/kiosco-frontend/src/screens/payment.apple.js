@@ -26,11 +26,16 @@ export async function renderPaymentApple(container, params, navigate) {
   let pollTimer = null;
   let aborted   = false;
   let mainEl    = null;
+  let onVisible = null;
 
   const cleanup = () => {
     aborted = true;
     if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
+    if (onVisible) {
+      document.removeEventListener('visibilitychange', onVisible);
+      onVisible = null;
+    }
   };
 
   renderAppleShell(container, 'treatments', navigate, (main) => {
@@ -68,7 +73,7 @@ export async function renderPaymentApple(container, params, navigate) {
   }
 
   if (aborted) return cleanup;
-  renderQrScreen(content, payment, () => { cleanup(); navigate(returnTo); });
+  renderPayScreen(content, payment, () => { cleanup(); navigate(returnTo); });
 
   // Polling
   const startedAt = Date.now();
@@ -99,21 +104,40 @@ export async function renderPaymentApple(container, params, navigate) {
   };
 
   pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
+
+  // Reanudar el polling al volver a la app (§10): tras pagar en Wompi/Nequi el
+  // paciente regresa a esta pestaña; hacemos una comprobación inmediata para
+  // reflejar el estado sin esperar al siguiente tick.
+  onVisible = () => {
+    if (aborted) return;
+    if (document.visibilityState !== 'visible') return;
+    if (pollTimer) clearTimeout(pollTimer);
+    poll();
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
   return cleanup;
 }
 
 // ─── Renderers ───────────────────────────────────────────────────────────────
 
-function renderQrScreen(container, payment, onCancel) {
+function renderPayScreen(container, payment, onCancel) {
+  // En móvil el paciente ya está en su teléfono: el camino principal es el botón
+  // "Pagar ahora" que abre el enlace de Wompi. El QR queda como ayuda para pagar
+  // desde OTRO dispositivo (típicamente escritorio).
+  const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+
   let qrSvg = '';
-  try {
-    const qr = new QRCode({
-      content: payment.url, padding: 2, width: 260, height: 260,
-      color: '#1d1d1f', background: '#ffffff', ecl: 'M', join: true,
-    });
-    qrSvg = qr.svg();
-  } catch (err) {
-    console.error('[payment] QR generation failed', err);
+  if (isDesktop) {
+    try {
+      const qr = new QRCode({
+        content: payment.url, padding: 2, width: 220, height: 220,
+        color: '#1d1d1f', background: '#ffffff', ecl: 'M', join: true,
+      });
+      qrSvg = qr.svg();
+    } catch (err) {
+      console.error('[payment] QR generation failed', err);
+    }
   }
 
   const amountFmt = formatCop(payment.amount_cop);
@@ -131,18 +155,27 @@ function renderQrScreen(container, payment, onCancel) {
       </div>
 
       <div class="ak-card" style="text-align:center;padding:24px;">
-        <div style="margin-bottom:12px;">
-          ${qrSvg || '<div class="alert alert-error">No se pudo generar el código QR.</div>'}
+        <a href="${escapeHtml(payment.url)}" target="_blank" rel="noopener"
+           class="ak-btn-primary" id="pay-now-btn"
+           style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;text-decoration:none;">
+          <i class="ti ti-credit-card"></i> Pagar ahora
+        </a>
+        <div style="font-size:13px;color:var(--text2);margin-top:10px;">
+          Se abrirá Wompi para pagar con Nequi, PSE o tarjeta. Al terminar, vuelve a esta pantalla.
         </div>
-        <div style="font-size:14px;font-weight:500;color:var(--text1);margin-bottom:4px;">
-          Escanea con tu celular para pagar
+
+        ${isDesktop && qrSvg ? `
+        <div class="pay-qr" style="margin-top:20px;border-top:1px solid var(--hairline,#e5e5e5);padding-top:16px;">
+          <div style="font-size:13px;font-weight:500;color:var(--text1);margin-bottom:8px;">
+            o escanea con tu celular
+          </div>
+          <div>${qrSvg}</div>
         </div>
-        <div style="font-size:13px;color:var(--text2);">
-          Abre la cámara y apunta al QR. Se abrirá Wompi para pagar con Nequi, PSE o tarjeta.
-        </div>
-        <div id="status-line" style="margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        ` : ''}
+
+        <div id="status-line" style="margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;">
           <span class="status-dot status-pending"></span>
-          <span style="font-size:13px;color:var(--text2);">Esperando pago…</span>
+          <span style="font-size:13px;color:var(--text2);">Esperando confirmación del pago…</span>
         </div>
       </div>
 
@@ -153,8 +186,7 @@ function renderQrScreen(container, payment, onCancel) {
       </div>
 
       <div style="margin-top:16px;font-size:13px;color:var(--text2);text-align:center;">
-        <strong>¿Problemas para escanear?</strong> Pídele al recepcionista que te envíe
-        el enlace al celular, o realiza el pago en recepción.
+        ¿Problemas con el pago? También puedes realizarlo en recepción.
       </div>
     </div>
   `;

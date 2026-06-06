@@ -4,24 +4,35 @@
  * =============================================================================
  *
  * Mantiene:
- *   - config (resultado de /kiosk/bootstrap): clínica, habeas data, FAQ, etc.
+ *   - config (resultado de /public/bootstrap): clínica, habeas data, FAQ, etc.
  *   - patient (datos del paciente autenticado en la sesión actual)
  *   - lastActivity (para el detector de idle)
  *
- * NO persistir patient en sessionStorage/localStorage. Solo en memoria.
- * Si la pestaña se cierra o refresca, se pierde la sesión (deseado en kiosco).
- *
- * El kiosk_token sí persiste en sessionStorage (manejado por api.js) porque
- * sobrevive a refresh accidental de la pestaña, pero no al cierre del navegador.
+ * Web pública (§10): la info del paciente se persiste en sessionStorage para
+ * sobrevivir refresh de la pestaña y cambios de app en móvil, en paralelo con
+ * el access token (api.js). Se borra al cerrar la pestaña o al hacer logout.
+ * El token es lo que realmente autoriza; este objeto solo guarda datos de UI
+ * (p. ej. el nombre para saludar) y el backend revalida cada request.
  */
 
+const PATIENT_KEY = 'dk_patient_info';
+
 const listeners = new Set();
+
+function loadPersistedPatient() {
+  try {
+    const raw = sessionStorage.getItem(PATIENT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export const state = {
   /** Configuración del kiosco (vacía hasta que bootstrap() resuelva) */
   config: null,
   /** Datos del paciente actual (null si no hay sesión) */
-  patient: null,
+  patient: loadPersistedPatient(),
   /** Timestamp del último evento de interacción */
   lastActivity: Date.now(),
 };
@@ -53,11 +64,22 @@ export function setConfig(config) {
 
 export function setPatient(patient) {
   state.patient = patient;
+  try {
+    if (patient) sessionStorage.setItem(PATIENT_KEY, JSON.stringify(patient));
+    else sessionStorage.removeItem(PATIENT_KEY);
+  } catch {
+    // sessionStorage no disponible (modo privado estricto) — degradar a memoria
+  }
   notify();
 }
 
 export function clearPatient() {
   state.patient = null;
+  try {
+    sessionStorage.removeItem(PATIENT_KEY);
+  } catch {
+    // ignore
+  }
   notify();
 }
 

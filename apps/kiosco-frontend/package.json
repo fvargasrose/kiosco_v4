@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@tabler/icons-webfont": "^3.44.0",
     "qrcode-svg": "^1.1.0"
   },
   "devDependencies": {
