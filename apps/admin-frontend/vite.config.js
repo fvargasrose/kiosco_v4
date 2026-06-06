@@ -11,7 +11,11 @@ export default defineConfig({
   server: {
     port: 5174,
     host: true,
-    allowedHosts: 'all',
+    // Dev/testing: VITE_ALLOWED_HOSTS="host1,host2" para exponer por ngrok.
+    // Vacío (default) = solo localhost → estado correcto de producción.
+    allowedHosts: process.env.VITE_ALLOWED_HOSTS
+      ? process.env.VITE_ALLOWED_HOSTS.split(',').map((h) => h.trim())
+      : [],
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

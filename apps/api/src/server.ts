@@ -60,7 +60,10 @@ export async function buildServer() {
   });
 
   await app.register(cors, {
-    origin: false, // Mismo origen (servido por Caddy)
+    // DEV: reflect origin → permite ngrok y acceso desde red local/celulares.
+    // PRODUCCIÓN: revertir a `origin: false` (Caddy filtra orígenes antes de llegar aquí).
+    // Ver docs/produccion_pendiente.md
+    origin: true,
     credentials: true,
   });
 
