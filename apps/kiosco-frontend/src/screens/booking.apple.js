@@ -6,6 +6,7 @@ import { toast } from '../components/toast.js';
 import { renderAppleShell } from './shared/shell.apple.js';
 import {
   STEPS,
+  getSteps,
   clearForwardSelections,
   getDateBounds,
   renderCalendar,
@@ -21,6 +22,11 @@ export function renderBookingApple(container, _params, navigate) {
     return null;
   }
 
+  // Bandera de procedimientos (bootstrap). Si está desactivada, se omite el
+  // paso 'treatment' y se usa una "Consulta general" con la duración por defecto.
+  const proceduresEnabled = state.config?.procedimientos_activos !== false;
+  const steps = getSteps(proceduresEnabled);
+
   const selection = {
     branch: null,
     dentist: null,
@@ -30,12 +36,19 @@ export function renderBookingApple(container, _params, navigate) {
     notas: '',
   };
 
+  // Procedimientos desactivados: presembrar el tratamiento por defecto (30 min).
+  if (!proceduresEnabled) {
+    selection.treatment = buildTreatmentList([], state.config?.duracion_cita_minutos)[0];
+  }
+
   let currentStep = 'branch';
   let mainEl = null;
 
   const goToStep = (step) => {
+    // Procedimientos desactivados: 'treatment' se omite → salta a 'date'.
+    if (step === 'treatment' && !proceduresEnabled) step = 'date';
     currentStep = step;
-    if (mainEl) renderStep(mainEl, step, selection, { next: goToStep, finish: () => navigate('home'), cancel: () => navigate('home') });
+    if (mainEl) renderStep(mainEl, step, selection, { next: goToStep, finish: () => navigate('home'), cancel: () => navigate('home') }, steps);
   };
 
   renderAppleShell(container, 'booking', navigate, (main) => {
@@ -58,10 +71,10 @@ export function renderBookingApple(container, _params, navigate) {
     `;
 
     main.querySelector('#back-btn').addEventListener('click', () => {
-      const idx = STEPS.indexOf(currentStep);
+      const idx = steps.indexOf(currentStep);
       if (idx <= 0) { navigate('home'); return; }
-      const prevStep = STEPS[idx - 1];
-      clearForwardSelections(selection, prevStep);
+      const prevStep = steps[idx - 1];
+      clearForwardSelections(selection, prevStep, steps);
       goToStep(prevStep);
     });
 
@@ -73,10 +86,10 @@ export function renderBookingApple(container, _params, navigate) {
 
 // ─── Step bar ────────────────────────────────────────────────────────────────
 
-function renderStepBar(el, currentStep) {
+function renderStepBar(el, currentStep, steps = STEPS) {
   const labels = { branch: 'Sede', dentist: 'Profesional', treatment: 'Tratamiento', date: 'Fecha', slot: 'Hora', confirm: 'Confirmar' };
-  const idx = STEPS.indexOf(currentStep);
-  el.innerHTML = STEPS.map((s, i) => {
+  const idx = steps.indexOf(currentStep);
+  el.innerHTML = steps.map((s, i) => {
     const cls = i < idx ? 'ak-step-item done' : i === idx ? 'ak-step-item active' : 'ak-step-item';
     return `<div class="${cls}"><span>${labels[s]}</span></div>`;
   }).join('');
@@ -84,13 +97,13 @@ function renderStepBar(el, currentStep) {
 
 // ─── Step dispatcher ─────────────────────────────────────────────────────────
 
-function renderStep(main, step, selection, actions) {
+function renderStep(main, step, selection, actions, steps = STEPS) {
   const subtitle = { branch: 'Selecciona la sede', dentist: 'Selecciona el profesional', treatment: 'Selecciona el tratamiento', date: 'Elige el día', slot: 'Elige la hora', confirm: 'Confirma tu cita' };
   const subtitleEl = main.querySelector('#booking-subtitle');
   if (subtitleEl) subtitleEl.textContent = subtitle[step] ?? '';
 
   const stepBar = main.querySelector('#step-bar');
-  if (stepBar) renderStepBar(stepBar, step);
+  if (stepBar) renderStepBar(stepBar, step, steps);
 
   const content = main.querySelector('#booking-content');
   switch (step) {

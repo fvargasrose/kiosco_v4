@@ -108,6 +108,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       },
       otp_required: config.OTP_REQUIRED,
       feature_registro: config.FEATURE_REGISTRO,
+      procedimientos_activos: config.PROCEDIMIENTOS_ACTIVOS,
       theme: config.KIOSK_THEME,
       // SITEKEY de Turnstile para que el frontend renderice el widget (Hito B
       // implementa el enforcement server-side). null si no está configurado.

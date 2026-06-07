@@ -121,6 +121,12 @@ const ConfigSchema = z.object({
   //         El endpoint POST /kiosk/register sigue respondiendo (no se desmonta).
   FEATURE_REGISTRO: boolEnv(false),
 
+  // false = el booking NO pregunta por procedimiento; usa una "Consulta general"
+  //         con la duración por defecto de la clínica (duracion_cita_minutos).
+  //         El admin sigue gestionando procedimientos; solo se oculta al paciente.
+  // true  = el paciente elige procedimiento como paso del booking.
+  PROCEDIMIENTOS_ACTIVOS: boolEnv(true),
+
   // -------- Cloudflare Turnstile (anti-abuso de OTP en web pública) --------
   // Hook del Hito A: se definen las claves pero el enforcement (verificación
   // server-side del token en /auth/request-otp) se implementa en el Hito B.

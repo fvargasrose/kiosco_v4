@@ -26,6 +26,7 @@ import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import {
   STEPS,
+  getSteps,
   clearForwardSelections,
   getDateBounds,
   renderCalendar,
@@ -41,6 +42,11 @@ export function renderBooking(container, params, navigate) {
     return null;
   }
 
+  // Bandera de procedimientos (bootstrap). Si está desactivada, se omite el
+  // paso 'treatment' y se usa una "Consulta general" con la duración por defecto.
+  const proceduresEnabled = state.config?.procedimientos_activos !== false;
+  const steps = getSteps(proceduresEnabled);
+
   const selection = {
     branch: null, // { id, nombre, direccion?, telefono?, horario? }
     dentist: null, // { id, nombre, apellido?, especialidad? }
@@ -49,6 +55,12 @@ export function renderBooking(container, params, navigate) {
     slot: null, // { hora_inicio, hora_fin, duracion_minutos, ... }
     notas: '',
   };
+
+  // Procedimientos desactivados: presembrar el tratamiento por defecto (30 min)
+  // para que date/slot tengan la duración sin pasar por el paso 'treatment'.
+  if (!proceduresEnabled) {
+    selection.treatment = buildTreatmentList([], state.config?.duracion_cita_minutos)[0];
+  }
 
   let currentStep = 'branch';
 
@@ -75,8 +87,11 @@ export function renderBooking(container, params, navigate) {
 
   // ===== Navegación entre pasos =====
   const goToStep = (step) => {
+    // Si los procedimientos están desactivados, 'treatment' se omite: cualquier
+    // intento de ir a ese paso salta directo a 'date'.
+    if (step === 'treatment' && !proceduresEnabled) step = 'date';
     currentStep = step;
-    renderProgress(progressEl, step);
+    renderProgress(progressEl, step, steps);
     updateTitle(titleEl, step, selection);
     renderStep(content, step, selection, {
       next: goToStep,
@@ -86,14 +101,14 @@ export function renderBooking(container, params, navigate) {
   };
 
   const goBack = () => {
-    const idx = STEPS.indexOf(currentStep);
+    const idx = steps.indexOf(currentStep);
     if (idx <= 0) {
       navigate('home');
       return;
     }
     // Al retroceder, limpiar selecciones posteriores
-    const prevStep = STEPS[idx - 1];
-    clearForwardSelections(selection, prevStep);
+    const prevStep = steps[idx - 1];
+    clearForwardSelections(selection, prevStep, steps);
     goToStep(prevStep);
   };
 
@@ -121,9 +136,9 @@ function updateTitle(el, step, selection) {
   el.textContent = titles[step] ?? 'Agendar cita';
 }
 
-function renderProgress(el, currentStep) {
-  const idx = STEPS.indexOf(currentStep);
-  el.innerHTML = STEPS.map((s, i) => {
+function renderProgress(el, currentStep, steps = STEPS) {
+  const idx = steps.indexOf(currentStep);
+  el.innerHTML = steps.map((s, i) => {
     const cls =
       i < idx ? 'progress-step done' : i === idx ? 'progress-step active' : 'progress-step';
     return `<div class="${cls}"><span>${i + 1}</span></div>`;

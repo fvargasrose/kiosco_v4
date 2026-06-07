@@ -23,16 +23,31 @@ export { buildTreatmentList, DEFAULT_TREATMENT_ID };
 export const STEPS = ['branch', 'dentist', 'treatment', 'date', 'slot', 'confirm'];
 
 /**
- * Limpia las selecciones posteriores a `fromStep` (usado al retroceder).
- * Muta `selection` en sitio, igual que las versiones previas por tema.
+ * Pasos activos según la bandera de procedimientos (bootstrap:
+ * `procedimientos_activos`). Si está desactivada, se omite el paso 'treatment'
+ * (el paciente no elige procedimiento; se usa una "Consulta general" presembrada
+ * con la duración por defecto de la clínica).
  */
-export function clearForwardSelections(selection, fromStep) {
-  const idx = STEPS.indexOf(fromStep);
-  if (idx <= STEPS.indexOf('dentist') - 1) selection.dentist = null;
-  if (idx <= STEPS.indexOf('treatment') - 1) selection.treatment = null;
-  if (idx <= STEPS.indexOf('date') - 1) selection.date = null;
-  if (idx <= STEPS.indexOf('slot') - 1) selection.slot = null;
-  if (idx <= STEPS.indexOf('confirm') - 1) selection.notas = '';
+export function getSteps(proceduresEnabled) {
+  return proceduresEnabled ? STEPS : STEPS.filter((s) => s !== 'treatment');
+}
+
+/**
+ * Limpia las selecciones posteriores a `fromStep` (usado al retroceder).
+ * Muta `selection` en sitio. Opera sobre la lista de pasos activos (`steps`),
+ * para no borrar el tratamiento presembrado cuando 'treatment' no es un paso.
+ */
+export function clearForwardSelections(selection, fromStep, steps = STEPS) {
+  const idx = steps.indexOf(fromStep);
+  const isAfter = (name) => {
+    const i = steps.indexOf(name);
+    return i !== -1 && idx <= i - 1;
+  };
+  if (isAfter('dentist')) selection.dentist = null;
+  if (isAfter('treatment')) selection.treatment = null;
+  if (isAfter('date')) selection.date = null;
+  if (isAfter('slot')) selection.slot = null;
+  if (isAfter('confirm')) selection.notas = '';
 }
 
 // ─── Calendario ────────────────────────────────────────────────────────────────
