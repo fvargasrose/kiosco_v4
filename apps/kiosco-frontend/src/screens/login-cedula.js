@@ -133,10 +133,21 @@ export function renderLoginCedula(container, params, navigate) {
         policyHash,
         turnstileToken,
       });
+      const maskedPhone = `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`;
+      // Persistir el OTP en curso para sobrevivir el cambio de app en móvil
+      // (ej: abrir el correo para leer el código y volver). Sin esto, al
+      // re-montarse la pantalla sin params se perdía el flujo (§10).
+      try {
+        sessionStorage.setItem('dk_otp_pending', JSON.stringify({
+          requestId: result.request_id,
+          maskedPhone,
+          expiresAt: Date.now() + (result.expires_in_seconds ?? 300) * 1000,
+        }));
+      } catch { /* sessionStorage no disponible: el flujo sigue funcionando en memoria */ }
       navigate('login-otp', {
         requestId: result.request_id,
         expiresInSeconds: result.expires_in_seconds,
-        maskedPhone: `+57 ${phoneDigits.slice(0, 3)} *** ${phoneDigits.slice(-2)}`,
+        maskedPhone,
       });
     } catch (err) {
       submitting = false;
