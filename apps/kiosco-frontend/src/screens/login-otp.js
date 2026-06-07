@@ -10,7 +10,27 @@ import { setPatient } from '../state.js';
 import { toast } from '../components/toast.js';
 
 export function renderLoginOtp(container, params, navigate) {
-  const { requestId, expiresInSeconds = 300, maskedPhone = '' } = params;
+  let { requestId, expiresInSeconds = 300, maskedPhone = '' } = params;
+
+  // Restaurar el OTP en curso si la pantalla se re-monta sin params (típico en
+  // móvil: cambiar a la app de correo para leer el código y volver recarga la
+  // pestaña). El estado se persiste en sessionStorage desde login-cedula (§10).
+  if (!requestId) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('dk_otp_pending') || 'null');
+      if (saved && saved.requestId) {
+        const secondsLeft = Math.floor((saved.expiresAt - Date.now()) / 1000);
+        if (secondsLeft > 0) {
+          requestId = saved.requestId;
+          maskedPhone = saved.maskedPhone || '';
+          expiresInSeconds = secondsLeft;
+        } else {
+          // Código ya vencido: limpiar y volver a empezar.
+          sessionStorage.removeItem('dk_otp_pending');
+        }
+      }
+    } catch { /* sessionStorage no disponible: seguimos el flujo normal */ }
+  }
 
   if (!requestId) {
     navigate('habeas-data');
@@ -66,6 +86,8 @@ export function renderLoginOtp(container, params, navigate) {
       clearInterval(countdownInterval);
       countdownEl.textContent = 'expirado';
       submitBtn.disabled = true;
+      // Código vencido: limpiar el estado persistido para no restaurarlo.
+      try { sessionStorage.removeItem('dk_otp_pending'); } catch { /* noop */ }
       showError('El código expiró. Toca "Cancelar" para volver a intentar.');
       return;
     }
@@ -102,6 +124,8 @@ export function renderLoginOtp(container, params, navigate) {
       const result = await api.verifyOtp({ requestId, code });
       // result.patient = { id, name, ... }
       setPatient(result.patient);
+      // OTP consumido: limpiar el estado persistido.
+      try { sessionStorage.removeItem('dk_otp_pending'); } catch { /* noop */ }
       // Detener el countdown
       clearInterval(countdownInterval);
       navigate('home');
@@ -176,6 +200,8 @@ export function renderLoginOtp(container, params, navigate) {
 
   container.querySelector('#back-btn').addEventListener('click', () => {
     clearInterval(countdownInterval);
+    // Cancelar: descartar el OTP en curso.
+    try { sessionStorage.removeItem('dk_otp_pending'); } catch { /* noop */ }
     navigate('standby');
   });
 
