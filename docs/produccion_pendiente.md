@@ -244,3 +244,61 @@ subir `RATE_LIMIT_OTP_PER_PHONE_PER_HOUR` / `RATE_LIMIT_OTP_PER_IP_PER_HOUR` en
 `.env`, o `OTP_REQUIRED=false` (login solo cédula + teléfono).
 
 > **En producción:** NO relajar estos límites; son protección anti-abuso real.
+
+---
+
+## 4. Setear `PROCEDIMIENTOS_ACTIVOS=false` en el `.env` de producción
+
+**Fecha:** 2026-06-07
+**Estado:** ⚠️ Acción requerida en deploy
+**Relacionado:** commit `feat(booking): bandera PROCEDIMIENTOS_ACTIVOS ...`
+
+### Qué
+El cliente, por ahora, solo tiene **un procedimiento de 30 min**, así que el
+booking debe **omitir el paso de "procedimiento"**. Esto se controla con la
+bandera `PROCEDIMIENTOS_ACTIVOS`:
+
+- **Default en código:** `true` (boolEnv) → muestra el paso de procedimiento.
+- **Lo que queremos ahora:** `false` → el paciente NO elige procedimiento; se usa
+  "Consulta general" con la duración por defecto de la clínica (`duracion_cita_minutos`, 30 min).
+
+### Acción en producción
+El `.env` **NO se commitea** (está en `.gitignore`), por lo que el valor de
+desarrollo no viaja al deploy. Hay que **agregarlo manualmente** en el `.env` de
+producción:
+
+```bash
+# en /opt/dentalkiosco/.env (o donde viva el .env de prod)
+PROCEDIMIENTOS_ACTIVOS=false
+
+# reiniciar el API para que tome el .env (tsx/docker no recargan .env en caliente)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart api
+```
+
+> Verificar tras reiniciar: `GET /public/bootstrap` debe traer
+> `"procedimientos_activos": false`.
+
+### Cuando el cliente active más procedimientos
+Cambiar a `PROCEDIMIENTOS_ACTIVOS=true` (o quitar la línea) y reiniciar el API.
+El admin **siempre** pudo gestionar procedimientos; la bandera solo controla si el
+paso aparece para el paciente.
+
+---
+
+## 5. Limpiar datos de prueba en Dentalink antes de producción real
+
+**Fecha:** 2026-06-07
+**Estado:** 🧹 Higiene pre-producción (datos en Dentalink real)
+
+Durante las pruebas de pago se manipuló data en el **Dentalink de producción**.
+Antes de salir a producción real conviene revisarlo/revertirlo:
+
+- **Teléfonos dummy** puestos para desduplicar (originales: `3206505239` y `3148961701`):
+  - `4196` → celular cambiado a `3009999999`
+  - `3999`, `3998`, `3718`, `3717` → celular cambiado a `3000000000`
+- **Paciente `3986`** se habilitó (`habilitado=1`).
+- **Tratamientos de prueba** creados ("Cargo administrativo (API)", $5.000):
+  `13699` (paciente 3986) y `13700` (paciente 4179) — quedaron sin "realizar"
+  (deuda 0), pero conviene eliminarlos/anularlos en Dentalink.
+- **Script** `docs/script_test/crear_deuda_2.py` contiene un **token de Dentalink
+  en texto plano** — borrarlo y no commitearlo. Rotar el token si quedó expuesto.
