@@ -72,6 +72,24 @@ class AdminApiClient {
     this.clearToken();
   }
 
+  async changePassword(currentPassword, newPassword) {
+    return this._fetch('/admin/auth/change-password', {
+      method: 'POST',
+      body: { current_password: currentPassword, new_password: newPassword },
+    });
+  }
+
+  async forgotPassword(email) {
+    return this._fetch('/admin/auth/forgot-password', { method: 'POST', body: { email } });
+  }
+
+  async resetPassword(email, code, newPassword) {
+    return this._fetch('/admin/auth/reset-password', {
+      method: 'POST',
+      body: { email, code, new_password: newPassword },
+    });
+  }
+
   // ── Clinic config ─────────────────────────────────────────────────────────
   async getClinic() {
     return this._fetch('/admin/clinic');

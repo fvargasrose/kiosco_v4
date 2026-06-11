@@ -5,6 +5,7 @@ import { renderClinicConfig } from './screens/clinic-config.js';
 import { renderDentists } from './screens/dentists.js';
 import { renderKiosks } from './screens/kiosks.js';
 import { renderTransactions } from './screens/transactions.js';
+import { renderChangePassword } from './screens/change-password.js';
 
 const app = document.getElementById('app');
 
@@ -52,6 +53,9 @@ function showDashboard(section = 'dashboard') {
         </button>
         <button class="nav-link ${section === 'transactions' ? 'active' : ''}" data-section="transactions">
           Transacciones
+        </button>
+        <button class="nav-link ${section === 'change-password' ? 'active' : ''}" data-section="change-password">
+          Cambiar contraseña
         </button>
         <div style="flex:1"></div>
         <button class="nav-link" id="logout-btn" style="color:var(--danger)">
@@ -106,6 +110,8 @@ function loadSection(section, container, navigate) {
     renderKiosks(container);
   } else if (section === 'transactions') {
     renderTransactions(container);
+  } else if (section === 'change-password') {
+    renderChangePassword(container);
   }
 }
 

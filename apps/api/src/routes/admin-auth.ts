@@ -28,11 +28,12 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomInt, createHash } from 'crypto';
 import { db } from '../lib/db.js';
 import { logger } from '../lib/logger.js';
 import { audit } from '../lib/audit.js';
-import { hashPassword, verifyPassword } from '../lib/passwords.js';
+import { hashPassword, verifyPassword, validatePasswordStrength } from '../lib/passwords.js';
+import { getEmailSender } from '../lib/email.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 import {
   generateTotpSecret,
@@ -62,6 +63,26 @@ const MfaVerifyBody = z.object({
 const MfaEnrollConfirmBody = z.object({
   code: z.string().regex(/^\d{6}$/, 'Código debe tener 6 dígitos'),
 });
+
+const ChangePasswordBody = z.object({
+  current_password: z.string().min(1).max(128),
+  new_password: z.string().min(1).max(128),
+});
+
+const ForgotPasswordBody = z.object({
+  email: z.string().email().toLowerCase(),
+});
+
+const ResetPasswordBody = z.object({
+  email: z.string().email().toLowerCase(),
+  code: z.string().regex(/^\d{6}$/, 'Código debe tener 6 dígitos'),
+  new_password: z.string().min(1).max(128),
+});
+
+// Recuperación de contraseña por código (almacenado hasheado en Redis, TTL corto)
+const PWRESET_PREFIX = 'admin:pwreset:';
+const PWRESET_TTL_SECS = 15 * 60;
+const PWRESET_MAX_ATTEMPTS = 5;
 
 // ----- DB row types -----
 
@@ -591,6 +612,193 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       action: 'admin.logout',
       result: 'success',
       ip: request.ip,
+    });
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * POST /admin/auth/change-password (requiere sesión)
+   * Cambia la contraseña del admin autenticado: valida la actual, exige una
+   * nueva fuerte y distinta, y limpia must_change_password.
+   */
+  app.post('/admin/auth/change-password', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.admin!;
+    const parsed = ChangePasswordBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'INVALID_INPUT', details: parsed.error.flatten() });
+    }
+    const { current_password, new_password } = parsed.data;
+
+    const r = await db.query<{ password_hash: string }>(
+      `SELECT password_hash FROM admins WHERE id = $1 AND deleted_at IS NULL`,
+      [admin.sub],
+    );
+    const row = r.rows[0];
+    if (!row) return reply.code(404).send({ error: 'ADMIN_NOT_FOUND' });
+
+    const ok = await verifyPassword(row.password_hash, current_password);
+    if (!ok) {
+      await audit({
+        actorType: 'admin', actorId: admin.sub, actorEmail: admin.email,
+        action: 'admin.password.change_invalid_current', result: 'denied', ip: request.ip,
+      });
+      return reply.code(401).send({ error: 'INVALID_CURRENT_PASSWORD' });
+    }
+
+    const strength = validatePasswordStrength(new_password);
+    if (!strength.valid) {
+      return reply.code(400).send({ error: 'WEAK_PASSWORD', errors: strength.errors });
+    }
+    if (await verifyPassword(row.password_hash, new_password)) {
+      return reply.code(400).send({
+        error: 'SAME_PASSWORD',
+        message: 'La nueva contraseña debe ser distinta a la actual.',
+      });
+    }
+
+    const newHash = await hashPassword(new_password);
+    await db.query(
+      `UPDATE admins
+       SET password_hash = $1, must_change_password = false, last_password_change = now()
+       WHERE id = $2`,
+      [newHash, admin.sub],
+    );
+
+    await audit({
+      actorType: 'admin', actorId: admin.sub, actorEmail: admin.email,
+      action: 'admin.password.changed', result: 'success', ip: request.ip,
+    });
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * POST /admin/auth/forgot-password (público)
+   * Envía un código de 6 dígitos al correo del admin. Respuesta SIEMPRE genérica
+   * (anti-enumeración). El código se guarda hasheado en Redis con TTL corto.
+   */
+  app.post('/admin/auth/forgot-password', async (request, reply) => {
+    const parsed = ForgotPasswordBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'INVALID_INPUT' });
+    }
+    const { email } = parsed.data;
+
+    // Rate limit por IP (anti-abuso del envío de correos)
+    const ipKey = `${PWRESET_PREFIX}ip:${request.ip}`;
+    const ipCount = await redis.incr(ipKey);
+    if (ipCount === 1) await redis.expire(ipKey, 3600);
+    if (ipCount > 10) {
+      return reply.code(429).send({ error: 'RATE_LIMIT' });
+    }
+
+    const r = await db.query<{ id: string; email: string; full_name: string }>(
+      `SELECT id, email, full_name FROM admins
+       WHERE email = $1 AND deleted_at IS NULL AND is_active = true`,
+      [email],
+    );
+    const admin = r.rows[0];
+
+    if (admin) {
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      const codeHash = createHash('sha256').update(code).digest('hex');
+      await redis.set(
+        `${PWRESET_PREFIX}${email}`,
+        JSON.stringify({ codeHash, attempts: 0 }),
+        PWRESET_TTL_SECS,
+      );
+      try {
+        await getEmailSender().send({
+          to: admin.email,
+          subject: 'DentalKiosco — código de recuperación de contraseña',
+          html:
+            `<p>Hola ${admin.full_name},</p>` +
+            `<p>Tu código para restablecer la contraseña del panel de administración es:</p>` +
+            `<p style="font-size:1.6rem;font-weight:bold;letter-spacing:.25em">${code}</p>` +
+            `<p>Vence en 15 minutos. Si no solicitaste este cambio, ignora este correo.</p>`,
+          text: `Código de recuperación DentalKiosco: ${code} (vence en 15 minutos). Si no lo solicitaste, ignóralo.`,
+        });
+      } catch (err) {
+        logger.error({ err }, 'admin forgot-password: fallo al enviar correo');
+      }
+      await audit({
+        actorType: 'admin', actorId: admin.id, actorEmail: admin.email,
+        action: 'admin.password.reset_requested', result: 'success', ip: request.ip,
+      });
+    } else {
+      await audit({
+        actorType: 'system', action: 'admin.password.reset_unknown_email',
+        metadata: { email }, result: 'denied', ip: request.ip,
+      });
+    }
+
+    // Respuesta genérica siempre
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * POST /admin/auth/reset-password (público)
+   * Valida el código enviado por correo y fija la nueva contraseña.
+   */
+  app.post('/admin/auth/reset-password', async (request, reply) => {
+    const parsed = ResetPasswordBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'INVALID_INPUT', details: parsed.error.flatten() });
+    }
+    const { email, code, new_password } = parsed.data;
+
+    const key = `${PWRESET_PREFIX}${email}`;
+    const raw = await redis.get(key);
+    if (!raw) return reply.code(400).send({ error: 'INVALID_OR_EXPIRED' });
+
+    let state: { codeHash: string; attempts: number };
+    try {
+      state = JSON.parse(raw);
+    } catch {
+      await redis.del(key);
+      return reply.code(400).send({ error: 'INVALID_OR_EXPIRED' });
+    }
+
+    if (state.attempts >= PWRESET_MAX_ATTEMPTS) {
+      await redis.del(key);
+      return reply.code(429).send({ error: 'TOO_MANY_ATTEMPTS' });
+    }
+
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    if (codeHash !== state.codeHash) {
+      state.attempts += 1;
+      await redis.set(key, JSON.stringify(state), PWRESET_TTL_SECS);
+      return reply.code(400).send({ error: 'INVALID_OR_EXPIRED' });
+    }
+
+    const strength = validatePasswordStrength(new_password);
+    if (!strength.valid) {
+      return reply.code(400).send({ error: 'WEAK_PASSWORD', errors: strength.errors });
+    }
+
+    const r = await db.query<{ id: string; email: string }>(
+      `SELECT id, email FROM admins
+       WHERE email = $1 AND deleted_at IS NULL AND is_active = true`,
+      [email],
+    );
+    const admin = r.rows[0];
+    if (!admin) {
+      await redis.del(key);
+      return reply.code(400).send({ error: 'INVALID_OR_EXPIRED' });
+    }
+
+    const newHash = await hashPassword(new_password);
+    await db.query(
+      `UPDATE admins
+       SET password_hash = $1, must_change_password = false, last_password_change = now(),
+           failed_login_attempts = 0, locked_until = NULL
+       WHERE id = $2`,
+      [newHash, admin.id],
+    );
+    await redis.del(key);
+
+    await audit({
+      actorType: 'admin', actorId: admin.id, actorEmail: admin.email,
+      action: 'admin.password.reset', result: 'success', ip: request.ip,
     });
     return reply.send({ ok: true });
   });

@@ -21,6 +21,7 @@ import { redis } from '../src/lib/redis.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { generateSync } from 'otplib';
 import { decrypt } from '../src/lib/crypto.js';
+import { getEmailSender, setEmailSender } from '../src/lib/email.js';
 
 let app: FastifyInstance;
 
@@ -388,5 +389,145 @@ describe('Audit log', () => {
        ORDER BY created_at DESC LIMIT 1`,
     );
     expect(result.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Cambio y recuperación de contraseña', () => {
+  const PW_EMAIL = 'test_pwd@demo.local';
+  const PW_PASSWORD = 'TestPwd1234!';
+  let captured: any = null;
+  let origSender: ReturnType<typeof getEmailSender>;
+
+  beforeAll(async () => {
+    await db.query(`DELETE FROM admins WHERE email = $1`, [PW_EMAIL]);
+    const hash = await hashPassword(PW_PASSWORD);
+    await db.query(
+      `INSERT INTO admins (email, password_hash, full_name, role, mfa_required)
+       VALUES ($1, $2, 'PW Admin', 'admin', false)`,
+      [PW_EMAIL, hash],
+    );
+    await redis.del(`admin:pwreset:${PW_EMAIL}`);
+    origSender = getEmailSender();
+    setEmailSender({
+      async send(input) { captured = input; return { id: 'test-capture' }; },
+    });
+  });
+
+  afterAll(async () => {
+    setEmailSender(origSender);
+    await db.query(`DELETE FROM admins WHERE email = $1`, [PW_EMAIL]);
+    await redis.del(`admin:pwreset:${PW_EMAIL}`);
+  });
+
+  async function login(password: string): Promise<string> {
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/login',
+      payload: { email: PW_EMAIL, password },
+    });
+    return res.json().session_token;
+  }
+
+  it('change-password requiere sesión', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/change-password',
+      payload: { current_password: PW_PASSWORD, new_password: 'NewStrong1!' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('change-password rechaza la contraseña actual incorrecta', async () => {
+    const token = await login(PW_PASSWORD);
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/change-password',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { current_password: 'WrongCurrent1!', new_password: 'NewStrong1!' },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error).toBe('INVALID_CURRENT_PASSWORD');
+  });
+
+  it('change-password rechaza una nueva contraseña débil', async () => {
+    const token = await login(PW_PASSWORD);
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/change-password',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { current_password: PW_PASSWORD, new_password: 'weak' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('WEAK_PASSWORD');
+  });
+
+  it('change-password exitoso: login refleja la nueva contraseña', async () => {
+    const token = await login(PW_PASSWORD);
+    const NEW_PW = 'Changed1234!';
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/change-password',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { current_password: PW_PASSWORD, new_password: NEW_PW },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    const oldRes = await app.inject({
+      method: 'POST', url: '/admin/auth/login',
+      payload: { email: PW_EMAIL, password: PW_PASSWORD },
+    });
+    expect(oldRes.statusCode).toBe(401);
+
+    const newRes = await app.inject({
+      method: 'POST', url: '/admin/auth/login',
+      payload: { email: PW_EMAIL, password: NEW_PW },
+    });
+    expect(newRes.statusCode).toBe(200);
+
+    // Restaurar la contraseña base para los siguientes tests
+    await db.query(`UPDATE admins SET password_hash = $1 WHERE email = $2`,
+      [await hashPassword(PW_PASSWORD), PW_EMAIL]);
+  });
+
+  it('forgot-password responde 200 genérico para email desconocido', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/forgot-password',
+      payload: { email: 'no-existe-jamas@demo.local' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+  });
+
+  it('reset-password rechaza código inexistente/expirado', async () => {
+    await redis.del(`admin:pwreset:${PW_EMAIL}`);
+    const res = await app.inject({
+      method: 'POST', url: '/admin/auth/reset-password',
+      payload: { email: PW_EMAIL, code: '000000', new_password: 'Whatever1!' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('INVALID_OR_EXPIRED');
+  });
+
+  it('flujo completo: forgot envía código y reset lo aplica', async () => {
+    captured = null;
+    const fp = await app.inject({
+      method: 'POST', url: '/admin/auth/forgot-password',
+      payload: { email: PW_EMAIL },
+    });
+    expect(fp.statusCode).toBe(200);
+    expect(captured).not.toBeNull();
+    const match = String(captured.text || '').match(/(\d{6})/);
+    expect(match).not.toBeNull();
+    const code = match![1];
+
+    const RESET_PW = 'Reset123456!';
+    const rp = await app.inject({
+      method: 'POST', url: '/admin/auth/reset-password',
+      payload: { email: PW_EMAIL, code, new_password: RESET_PW },
+    });
+    expect(rp.statusCode).toBe(200);
+    expect(rp.json().ok).toBe(true);
+
+    const li = await app.inject({
+      method: 'POST', url: '/admin/auth/login',
+      payload: { email: PW_EMAIL, password: RESET_PW },
+    });
+    expect(li.statusCode).toBe(200);
   });
 });
