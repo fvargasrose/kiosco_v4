@@ -40,7 +40,7 @@ RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 
-COPY tsconfig.json ./
+COPY tsconfig.base.json tsconfig.json ./
 COPY src ./src
 
 RUN pnpm build
@@ -63,6 +63,7 @@ WORKDIR /app
 COPY --from=deps --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/package.json ./
+COPY --chown=app:app migrations ./migrations
 
 # Variables por defecto
 ENV NODE_ENV=production

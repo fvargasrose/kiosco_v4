@@ -16,3 +16,7 @@ services:
       - caddy_config:/config
       - ./apps/kiosco-frontend/dist:/srv/kiosco:ro
       - ./apps/admin-frontend/dist:/srv/admin:ro
+
+  api:
+    volumes:
+      - ./apps/api/uploads:/app/uploads
