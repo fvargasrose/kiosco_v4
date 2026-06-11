@@ -49,7 +49,7 @@ Bugs reales del repo que impedían construir/servir en producción. **Ya están 
 | 3 | `apps/api/Dockerfile` | El runtime no copiaba `migrations/` → `COPY migrations ./migrations` (migrate.js busca `/app/migrations`) |
 | 4 | `infra/caddy/Caddyfile.prod` | Bloque admin: `root /srv` + `try_files {path} /admin/index.html` (servía mal `/admin`) |
 | 5 | `apps/admin-frontend/vite.config.js` | `base: '/admin/'` (el panel se sirve bajo `/admin`) |
-| 6 | `infra/caddy/Caddyfile.prod` | CSP del kiosco: añadido `https://challenges.cloudflare.com` a `script-src`/`connect-src`/`frame-src` (sin esto, el widget Turnstile no renderiza) |
+| 6 | `infra/caddy/Caddyfile.prod` | CSP del kiosco: `https://challenges.cloudflare.com` en `script-src`/`connect-src`/`frame-src` (Turnstile) **y** `blob:` en `img-src` + `media-src 'self' blob:` (sin esto el video/GIF de standby no se reproduce — el frontend usa `blob:` URLs) |
 | + | `docker-compose.prod.yml` | Volumen `./apps/api/uploads:/app/uploads` para **persistir** fotos/standby entre rebuilds |
 
 ## 5. Configuración que NO está en git (entorno/datos — por despliegue)
@@ -62,6 +62,7 @@ Estas cosas viven en el servidor y/o son específicas del entorno. **Committear 
   - Wompi en **producción** (`WOMPI_ENVIRONMENT=production`, `WOMPI_API_URL=production.wompi.co/v1`, `DEV_MOCK_WOMPI=false`) → **pagos reales**.
   - **Turnstile** (`TURNSTILE_SECRET` + `TURNSTILE_SITEKEY`) — **obligatorio** con `NODE_ENV=production` o el API no arranca.
   - `LICENSE_DEV_MODE=true`. Twilio vacío → OTP solo por correo.
+  - **`UPLOADS_MAX_BYTES=209715200`** (200 MB) — subido desde 50 MB para permitir el video de standby. Videos grandes hacen lento el kiosco; conviene subir videos livianos.
   - Secretos `POSTGRES/REDIS/JWT/ENCRYPTION` generados para prod (hex). `ENCRYPTION_KEY` cifra datos en reposo → **NO cambiarla** (rompe lo cifrado).
 - **Fila `clinic` (id=1) y datos:** se migraron desde local (ver §6). Es **DATA**, no código.
 
