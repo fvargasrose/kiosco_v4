@@ -638,17 +638,29 @@ class DentalinkClient {
       dentalinkToken!,
     );
     // Normalizar campos reales de Dentalink → interfaz interna
-    // Dentalink devuelve: deuda (en lugar de saldo_pendiente), finalizado (boolean)
-    const list = (data.data ?? []).map((t: any): DentalinkTreatment => ({
-      id: String(t.id ?? ''),
-      nombre: t.nombre ?? '',
-      estado: t.finalizado ? 'Finalizado' : 'En curso',
-      fecha_inicio: t.fecha ?? '',
-      id_paciente: t.id_paciente,
-      total: t.total ?? 0,
-      abonado: t.abonado ?? 0,
-      saldo_pendiente: t.deuda ?? t.saldo_pendiente ?? 0,
-    }));
+    // Dentalink devuelve: finalizado (0/1), total, abonado, deuda.
+    //
+    // ⚠️ El "saldo por abonar" (lo que el paciente debe pagar) es total − abonado,
+    // NO el campo `deuda`. En Dentalink `deuda` solo cuenta la porción ya
+    // "realizada" por el odontólogo: un tratamiento presupuestado pero no
+    // realizado reporta deuda=0 aunque tenga saldo por cobrar. Usar `deuda`
+    // hacía que el kiosco mostrara "$0 / Al día" y ocultara el botón Pagar
+    // aunque el paciente tuviera cargos. Ver paciente real 4179 (RADIOLOGIA
+    // total=2000, abonado=0, deuda=0 → saldo real = 2000).
+    const list = (data.data ?? []).map((t: any): DentalinkTreatment => {
+      const total = Number(t.total ?? 0);
+      const abonado = Number(t.abonado ?? 0);
+      return {
+        id: String(t.id ?? ''),
+        nombre: t.nombre ?? '',
+        estado: t.finalizado ? 'Finalizado' : 'En curso',
+        fecha_inicio: t.fecha ?? '',
+        id_paciente: t.id_paciente,
+        total,
+        abonado,
+        saldo_pendiente: Math.max(0, total - abonado),
+      };
+    });
     await setCached(cacheKey, list, CACHE_TTL_TREATMENTS);
     return list;
   }
