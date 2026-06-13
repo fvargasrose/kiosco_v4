@@ -655,7 +655,11 @@ class DentalinkClient {
         nombre: t.nombre ?? '',
         estado: t.finalizado ? 'Finalizado' : 'En curso',
         fecha_inicio: t.fecha ?? '',
-        id_paciente: t.id_paciente,
+        // Dentalink devuelve id_paciente como número; la interfaz lo declara
+        // string. payments.ts compara `t.id_paciente === patient.sub` (string
+        // del JWT) con === estricto, así que un número aquí rompe el pago con
+        // 404 "Tratamiento no encontrado". Normalizar a string.
+        id_paciente: String(t.id_paciente ?? ''),
         total,
         abonado,
         saldo_pendiente: Math.max(0, total - abonado),
