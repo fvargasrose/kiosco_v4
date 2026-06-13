@@ -201,7 +201,7 @@ function handleStatusChange(result, container, navigate, returnTo, cleanup) {
     showModal({
       icon: '✅',
       title: '¡Pago recibido!',
-      body: `Tu pago de ${formatCop(result.amount_cop)} fue procesado exitosamente. Recibirás el comprobante por correo electrónico.`,
+      body: `Tu pago de ${formatCop(result.amount_cop)} fue procesado exitosamente. Recibirás el comprobante por correo electrónico. El saldo de tu tratamiento puede tardar hasta 4 horas en actualizarse, una vez la clínica confirme el pago.`,
       actions: [{ label: 'Entendido', variant: 'primary', action: () => navigate('home') }],
       dismissible: false,
     });
