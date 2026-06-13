@@ -137,13 +137,12 @@ function renderQrScreen(container, payment, onCancel) {
   try {
     const qr = new QRCode({
       content: payment.url,
-      padding: 2,
+      padding: 4, // zona silenciosa norma QR (con 2 muchas cámaras no leen en pantalla)
       width: 280,
       height: 280,
       color: '#0f172a',
       background: '#ffffff',
       ecl: 'M',
-      join: true, // SVG más pequeño
     });
     qrSvg = qr.svg();
   } catch (err) {

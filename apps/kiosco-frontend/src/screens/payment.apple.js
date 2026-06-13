@@ -131,8 +131,11 @@ function renderPayScreen(container, payment, onCancel) {
   if (isDesktop) {
     try {
       const qr = new QRCode({
-        content: payment.url, padding: 2, width: 220, height: 220,
-        color: '#1d1d1f', background: '#ffffff', ecl: 'M', join: true,
+        // padding: 4 = zona silenciosa que exige la norma QR (con 2 muchas
+        // cámaras no leen el código en pantalla). Sin join: render por
+        // rectángulos, el más fiable para escanear desde un monitor.
+        content: payment.url, padding: 4, width: 280, height: 280,
+        color: '#1d1d1f', background: '#ffffff', ecl: 'M',
       });
       qrSvg = qr.svg();
     } catch (err) {
