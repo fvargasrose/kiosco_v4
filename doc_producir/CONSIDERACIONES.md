@@ -87,3 +87,32 @@ mismo-origen vía Caddy). Ya aplicado en `para_produccion`.
   (si no, `migrate.js` falla con `ENOENT /app/migrations`).
 - `vite.config.js` admin con `base: '/admin/'`.
 - Caddyfile admin: `root /srv` + `try_files {path} /admin/index.html`.
+
+## 12. Aviso de privacidad (Habeas Data) — vive en la fila `clinic`, no en código
+El texto del aviso está en `clinic.habeas_data_policy_text` (no lo gestiona el panel
+admin). Al cambiar el texto hay que **recalcular el hash** `sha256(texto)` en
+`clinic.habeas_data_policy_hash` (el login de paciente valida que el hash enviado por
+el frontend coincida con este; además se guarda en cada `habeas_data_consents` como
+prueba de qué texto aceptó el paciente) y **subir la versión** en
+`clinic.habeas_data_policy_version` (así los pacientes reconsienten el texto nuevo).
+
+Texto legal vigente en producción (aplicado 2026-06-13, versión `v1.0`):
+> En cumplimiento de la Ley Estatutaria 1581 de 2012 (Régimen General de Protección de
+> Datos Personales), el Decreto 1377 de 2013 y demás normas concordantes vigentes en
+> Colombia, los datos aquí recolectados serán tratados de forma segura y confidencial
+> para la gestión de su atención.
+
+Para reaplicarlo en un deploy nuevo (el hash debe ser el sha256 exacto del texto):
+```bash
+CP="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+TXT="En cumplimiento de la Ley Estatutaria 1581 de 2012 (Régimen General de Protección de Datos Personales), el Decreto 1377 de 2013 y demás normas concordantes vigentes en Colombia, los datos aquí recolectados serán tratados de forma segura y confidencial para la gestión de su atención."
+HASH=$(printf '%s' "$TXT" | sha256sum | cut -d' ' -f1)
+$CP exec -T postgres psql -U dentalkiosco -d dentalkiosco <<SQL
+UPDATE clinic SET
+  habeas_data_policy_text = '$TXT',
+  habeas_data_policy_hash = '$HASH',
+  habeas_data_policy_version = 'v1.0'
+WHERE id = 1;
+SQL
+```
+(hash vigente: `b0a39df1982ca1473814092870b24328bef18b58609351ac5e56e7ae758691e0`).
