@@ -68,17 +68,67 @@ class TwilioSmsSender implements SmsSender {
   }
 }
 
+/**
+ * Adaptador LabsMobile (https://api.labsmobile.com/json/send).
+ * Auth Basic con base64(usuario:token). El remitente (tpoa) es alfanumérico
+ * de hasta 11 caracteres. El msisdn va SIN el prefijo "+" (código país + número).
+ * Respuesta JSON: { code: "0", message, subid } → code "0" = éxito.
+ */
+class LabsMobileSmsSender implements SmsSender {
+  async send(to: string, body: string): Promise<{ sid: string }> {
+    const creds = Buffer.from(
+      `${config.LABSMOBILE_USERNAME}:${config.LABSMOBILE_TOKEN}`,
+    ).toString('base64');
+    const msisdn = to.replace(/^\+/, ''); // LabsMobile espera el número sin "+"
+
+    const res = await fetch('https://api.labsmobile.com/json/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${creds}`,
+        'Cache-Control': 'no-cache',
+      },
+      body: JSON.stringify({
+        message: body,
+        tpoa: config.LABSMOBILE_SENDER,
+        recipient: [{ msisdn }],
+      }),
+    });
+
+    const data: any = await res.json().catch(() => ({}));
+    // code "0" = aceptado; cualquier otro valor es error de LabsMobile.
+    if (!res.ok || String(data?.code) !== '0') {
+      throw new Error(
+        `LabsMobile error (HTTP ${res.status}): ${JSON.stringify(data)}`,
+      );
+    }
+
+    const sid = String(data?.subid ?? `labsmobile-${Date.now()}`);
+    logger.info(
+      { to: maskPhone(to), sid, channel: 'sms' },
+      'SMS sent via LabsMobile',
+    );
+    return { sid };
+  }
+}
+
 let _instance: SmsSender | null = null;
 
 export function getSmsSender(): SmsSender {
   if (_instance) return _instance;
 
-  if (config.DEV_MOCK_EXTERNAL_SERVICES || !features.twilioConfigured) {
+  if (config.DEV_MOCK_EXTERNAL_SERVICES) {
     _instance = new MockSmsSender();
-    logger.info('SMS: using MockSmsSender (dev mode or Twilio not configured)');
-  } else {
+    logger.info('SMS: using MockSmsSender (DEV_MOCK_EXTERNAL_SERVICES)');
+  } else if (features.labsmobileConfigured) {
+    _instance = new LabsMobileSmsSender();
+    logger.info('SMS: using LabsMobileSmsSender');
+  } else if (features.twilioConfigured) {
     _instance = new TwilioSmsSender();
     logger.info('SMS: using TwilioSmsSender');
+  } else {
+    _instance = new MockSmsSender();
+    logger.info('SMS: using MockSmsSender (no SMS provider configured)');
   }
 
   return _instance;

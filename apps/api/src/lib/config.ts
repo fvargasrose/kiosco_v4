@@ -88,6 +88,12 @@ const ConfigSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
 
+  // LabsMobile (proveedor SMS preferido si está configurado; Twilio queda de respaldo).
+  // Auth Basic = base64(usuario:token). TPOA = remitente alfanumérico (máx 11 chars).
+  LABSMOBILE_USERNAME: z.string().optional(),
+  LABSMOBILE_TOKEN: z.string().optional(),
+  LABSMOBILE_SENDER: z.string().max(11).default('dentalcode'),
+
   SMTP_SERVER: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(465),
   SENDER_EMAIL: z.string().email().optional(),
@@ -185,6 +191,7 @@ export const features = {
     config.TWILIO_AUTH_TOKEN &&
     config.TWILIO_FROM_NUMBER
   ),
+  labsmobileConfigured: !!(config.LABSMOBILE_USERNAME && config.LABSMOBILE_TOKEN),
   smtpConfigured: !!(config.SMTP_SERVER && config.SENDER_EMAIL && config.SENDER_PASSWORD),
   // Turnstile listo para enforcement (Hito B): requiere el secret server-side.
   turnstileConfigured: !!config.TURNSTILE_SECRET,
