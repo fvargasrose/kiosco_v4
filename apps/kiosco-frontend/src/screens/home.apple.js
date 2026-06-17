@@ -48,7 +48,7 @@ export function renderHomeApple(container, _params, navigate) {
 
         <button type="button" class="ak-action-card" data-target="treatments">
           <div class="ak-action-icon ak-icon-orange">
-            <i class="ti ti-tooth"></i>
+            <i class="ti ti-dental"></i>
           </div>
           <div class="ak-action-label">Mis tratamientos</div>
           <div class="ak-action-desc">Historial y saldos pendientes</div>
