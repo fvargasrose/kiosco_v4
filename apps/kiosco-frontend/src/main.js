@@ -20,6 +20,7 @@ import { setConfig, subscribe, state, clearPatient } from './state.js';
 import { navigate, registerScreen, getCurrentScreen, initRouter, screenForPath } from './router.js';
 import { startIdleTimer, stopIdleTimer } from './idle.js';
 import { initMode, isKioskMode } from './lib/mode.js';
+import { mountKeyboard } from './components/keyboard.js';
 import { toast } from './components/toast.js';
 
 // Idle agresivo de kiosco (dispositivo compartido): avisa a los ~75 s y cierra
@@ -158,6 +159,13 @@ async function bootstrap() {
   // Resolver el modo (kiosco vs web) a partir del token del link (?k=<token>).
   // Debe correr antes de cualquier navegación o arranque del idle timer.
   initMode();
+
+  // Modo kiosco: teclado táctil en pantalla. Se monta una sola vez sobre #app
+  // (delegación por focusin); aparece al enfocar inputs marcados con data-kb.
+  // En modo web no se monta: se usa el teclado nativo del dispositivo.
+  if (isKioskMode()) {
+    mountKeyboard(root);
+  }
 
   let config;
   try {

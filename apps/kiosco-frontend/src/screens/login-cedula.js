@@ -44,7 +44,7 @@ export function renderLoginCedula(container, params, navigate) {
               <span class="phone-prefix">+57</span>
               <input type="tel" id="phone" inputmode="numeric" pattern="[0-9]*"
                      autocomplete="tel-national" placeholder="3001234567"
-                     maxlength="10">
+                     maxlength="10" data-kb="numeric">
             </div>
             <div class="form-help">10 dígitos, sin el +57. Te enviaremos un código por SMS y correo.</div>
           </div>

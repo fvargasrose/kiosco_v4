@@ -57,12 +57,12 @@ export function renderLoginOtp(container, params, navigate) {
           <div id="form-error" class="form-error" style="display: none;"></div>
 
           <div class="otp-inputs" id="otp-inputs">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="0">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="1">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="2">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="3">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="4">
-            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-index="5">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="0">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="1">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="2">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="3">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="4">
+            <input type="tel" inputmode="numeric" maxlength="1" class="otp-digit" data-kb="numeric" data-index="5">
           </div>
 
           <button type="button" class="btn btn-primary btn-lg btn-full" id="submit-btn" disabled>

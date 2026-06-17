@@ -424,7 +424,7 @@ function renderConfirmStep(container, selection, { finish, cancel, next }) {
         Motivo o notas (opcional)
       </label>
       <input type="text" id="notas-input" maxlength="200"
-             class="ak-input" placeholder="Ej: Dolor muela inferior izquierda" autocomplete="off">
+             class="ak-input" placeholder="Ej: Dolor muela inferior izquierda" autocomplete="off" data-kb="alpha">
       <div style="font-size:12px;color:var(--text3);margin-top:4px;">Máx 200 caracteres.</div>
     </div>
 
