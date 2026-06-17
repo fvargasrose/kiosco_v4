@@ -45,6 +45,7 @@ body.theme-apple {
 .ak-shell {
   display: flex;
   height: 100vh;
+  height: 100dvh; /* móvil: evita que la barra de direcciones tape el bottom-nav */
   min-height: 600px;
   overflow: hidden;
   background: var(--bg);
@@ -581,6 +582,8 @@ body.theme-apple {
   .ak-hero-name { font-size: 20px; }
   .ak-page-title { font-size: 22px; }
   .ak-toggle { display: none; }
+  /* Header de página (título + acción): que el botón baje en vez de apretar. */
+  .ak-page-header { flex-wrap: wrap; }
 }
 
 /* Pantallas muy angostas (≈360px): una sola columna para no apretar las tarjetas. */

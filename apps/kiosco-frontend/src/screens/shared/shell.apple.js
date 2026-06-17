@@ -20,10 +20,10 @@ let sidebarCollapsed = false;
  */
 export function renderAppleShell(container, activeNav, navigate, renderContent) {
   const navItems = [
-    { icon: 'ti-home-2',       label: 'Inicio',            target: 'home'         },
-    { icon: 'ti-calendar',     label: 'Mis Citas',         target: 'appointments' },
-    { icon: 'ti-tooth',        label: 'Mis Tratamientos',  target: 'treatments'   },
-    { icon: 'ti-calendar-plus',label: 'Agendar Cita',      target: 'booking'      },
+    { icon: 'ti-home-2',       label: 'Inicio',            short: 'Inicio',        target: 'home'         },
+    { icon: 'ti-calendar',     label: 'Mis Citas',         short: 'Citas',         target: 'appointments' },
+    { icon: 'ti-dental',       label: 'Mis Tratamientos',  short: 'Tratamientos',  target: 'treatments'   },
+    { icon: 'ti-calendar-plus',label: 'Agendar Cita',      short: 'Agendar',       target: 'booking'      },
   ];
 
   const navHtml = navItems.map((n) => `
@@ -40,7 +40,7 @@ export function renderAppleShell(container, activeNav, navigate, renderContent) 
             class="ak-bottom-nav-item${n.target === activeNav ? ' active' : ''}"
             data-target="${n.target}">
       <i class="ti ${n.icon}"></i>
-      <span>${n.label}</span>
+      <span>${n.short}</span>
     </button>
   `).join('');
 
@@ -48,7 +48,7 @@ export function renderAppleShell(container, activeNav, navigate, renderContent) 
   const clinicName = state.config?.clinic?.display_name ?? 'Clínica';
   const brandHtml = logoUrl
     ? `<img class="ak-sidebar-logo" src="${escAttr(logoUrl)}" alt="${escAttr(clinicName)}">`
-    : `<div class="ak-logo-circle"><i class="ti ti-tooth"></i></div>`;
+    : `<div class="ak-logo-circle"><i class="ti ti-dental"></i></div>`;
 
   container.innerHTML = `
     <div class="ak-shell${sidebarCollapsed ? ' collapsed' : ''}">

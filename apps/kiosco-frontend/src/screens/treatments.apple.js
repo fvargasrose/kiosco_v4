@@ -69,7 +69,7 @@ function renderContent(container, res, navigate) {
     ${items.length
       ? items.map(renderTreatmentRow).join('')
       : `<div class="ak-empty">
-           <i class="ti ti-tooth" style="font-size:48px;color:var(--text3);margin-bottom:12px;"></i>
+           <i class="ti ti-dental" style="font-size:48px;color:var(--text3);margin-bottom:12px;"></i>
            <p>No tienes tratamientos registrados todavía.</p>
          </div>`
     }
