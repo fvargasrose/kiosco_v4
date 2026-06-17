@@ -104,8 +104,10 @@ const CACHE_TTL_SLOTS = 60; // 1 min — cambia constantemente
 const CACHE_TTL_ESTADOS = 3_600; // 1h — acota el blast-radius si se cachea un id erróneo
 const REQUEST_TIMEOUT_MS = 10_000;
 
-// Dentalink devuelve celular sin prefijo país (ej: "3206505239").
-// El frontend siempre envía "+57XXXXXXXXXX". Normalizamos al leer.
+// Los registros vigentes en Dentalink guardan el celular CON +57
+// (ej: "+573206505239"); algunos registros viejos vienen sin prefijo.
+// Canonizamos a "+57XXXXXXXXXX" tanto al LEER como al construir el filtro de
+// BÚSQUEDA y al CREAR, para que ingreso/registro siempre operen con +57.
 function normalizeCelular(celular: string): string {
   if (!celular) return celular;
   if (celular.startsWith('+')) return celular;
@@ -525,8 +527,9 @@ class DentalinkClient {
     celular: string,
     dentalinkToken: string | null,
   ): Promise<DentalinkPatient | null> {
-    // Dentalink almacena sin +57; aceptamos ambos formatos en entrada.
-    const dlCelular = celular.startsWith('+57') ? celular.slice(3) : celular;
+    // Dentalink almacena el celular CON prefijo +57 (verificado en prod 2026-06-17).
+    // Buscamos SIEMPRE con +57; normalizamos la entrada por si llegara sin prefijo.
+    const dlCelular = normalizeCelular(celular);
     const cacheKey = `dl:patient:celular:${dlCelular}`;
     const cached = await getCached<DentalinkPatient | { not_found: true }>(cacheKey);
     if (cached) {
@@ -535,10 +538,9 @@ class DentalinkClient {
     }
 
     if (isMockMode(dentalinkToken)) {
-      const matches = MOCK_PATIENTS.filter((p) => {
-        const stored = p.celular.startsWith('+57') ? p.celular.slice(3) : p.celular;
-        return stored === dlCelular;
-      });
+      const matches = MOCK_PATIENTS.filter(
+        (p) => normalizeCelular(p.celular) === dlCelular,
+      );
       if (matches.length > 1) {
         logger.warn(
           { celular: maskPhone(celular), matchCount: matches.length },
@@ -1282,18 +1284,17 @@ class DentalinkClient {
     celular: string,
     dentalinkToken: string | null,
   ): Promise<DentalinkPatient | null> {
-    // Normalizar celular al formato que Dentalink almacena (sin +57)
-    const dlCelular = celular.startsWith('+57') ? celular.slice(3) : celular;
+    // Dentalink almacena el celular CON +57; buscamos con ese mismo formato.
+    const dlCelular = normalizeCelular(celular);
 
     if (isMockMode(dentalinkToken)) {
       const byEmail = MOCK_PATIENTS.find(
         (p) => p.email?.toLowerCase() === email.toLowerCase(),
       ) ?? null;
       if (byEmail) return byEmail;
-      const byCelular = MOCK_PATIENTS.find((p) => {
-        const stored = p.celular.startsWith('+57') ? p.celular.slice(3) : p.celular;
-        return stored === dlCelular;
-      }) ?? null;
+      const byCelular = MOCK_PATIENTS.find(
+        (p) => normalizeCelular(p.celular) === dlCelular,
+      ) ?? null;
       return byCelular;
     }
 
@@ -1336,7 +1337,8 @@ class DentalinkClient {
     params: DentalinkCreatePatientParams,
     dentalinkToken: string | null,
   ): Promise<DentalinkCreatedPatient> {
-    const dlCelular = params.celular.startsWith('+57') ? params.celular.slice(3) : params.celular;
+    // Guardamos el celular CON +57 para que coincida con la búsqueda de ingreso.
+    const dlCelular = normalizeCelular(params.celular);
 
     if (isMockMode(dentalinkToken)) {
       const newId = String(Date.now());
@@ -1344,7 +1346,7 @@ class DentalinkClient {
         id: newId,
         rut: params.rut,
         nombre: `${params.nombre} ${params.apellidos}`,
-        celular: normalizeCelular(dlCelular),
+        celular: dlCelular,
         email: params.email,
         fecha_nacimiento: params.fecha_nacimiento,
       };
