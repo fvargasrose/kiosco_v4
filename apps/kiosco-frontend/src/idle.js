@@ -20,8 +20,13 @@
 import { state, recordActivity } from './state.js';
 import { showModal, closeActiveModal } from './components/modal.js';
 
-const WARN_AT_MS = 28 * 60_000; // 28 min
-const LOGOUT_AT_MS = 30 * 60_000; // 30 min
+// Defaults web (relajados). En modo kiosco, main.js pasa valores agresivos
+// (warnAtMs/logoutAtMs) vía startIdleTimer.
+const DEFAULT_WARN_AT_MS = 28 * 60_000; // 28 min
+const DEFAULT_LOGOUT_AT_MS = 30 * 60_000; // 30 min
+
+let warnAtMs = DEFAULT_WARN_AT_MS;
+let logoutAtMs = DEFAULT_LOGOUT_AT_MS;
 
 let intervalId = null;
 let warningShown = false;
@@ -42,11 +47,15 @@ const handler = () => {
  * @param {Object} hooks
  * @param {() => void} hooks.onTimeout   Callback al alcanzar 30 min sin actividad.
  *                                       Típicamente: logout + volver a standby.
- * @param {() => void} [hooks.onWarning] Callback al alcanzar 28 min. Default: modal.
+ * @param {() => void} [hooks.onWarning] Callback al alcanzar el warning. Default: modal.
+ * @param {number} [hooks.warnAtMs]   ms sin actividad para el aviso (default 28 min).
+ * @param {number} [hooks.logoutAtMs] ms sin actividad para cerrar (default 30 min).
  */
 export function startIdleTimer(hooks) {
   onTimeout = hooks.onTimeout;
   onWarning = hooks.onWarning ?? defaultWarning;
+  warnAtMs = hooks.warnAtMs ?? DEFAULT_WARN_AT_MS;
+  logoutAtMs = hooks.logoutAtMs ?? DEFAULT_LOGOUT_AT_MS;
 
   recordActivity();
   warningShown = false;
@@ -76,20 +85,20 @@ export function stopIdleTimer() {
 function tick() {
   const elapsed = Date.now() - state.lastActivity;
 
-  if (elapsed >= LOGOUT_AT_MS) {
+  if (elapsed >= logoutAtMs) {
     stopIdleTimer();
     onTimeout?.();
     return;
   }
 
-  if (elapsed >= WARN_AT_MS && !warningShown) {
+  if (elapsed >= warnAtMs && !warningShown) {
     warningShown = true;
     onWarning?.();
   }
 }
 
 function defaultWarning() {
-  let remaining = Math.ceil((LOGOUT_AT_MS - WARN_AT_MS) / 1000); // 30s
+  let remaining = Math.ceil((logoutAtMs - warnAtMs) / 1000);
   const modalHandle = showModal({
     icon: '⏰',
     title: '¿Sigues ahí?',
@@ -117,7 +126,7 @@ function defaultWarning() {
   // Actualizar el countdown en el modal
   const bodyEl = document.querySelector('.modal-body');
   const updateBody = setInterval(() => {
-    remaining = Math.ceil((LOGOUT_AT_MS - (Date.now() - state.lastActivity)) / 1000);
+    remaining = Math.ceil((logoutAtMs - (Date.now() - state.lastActivity)) / 1000);
     if (remaining <= 0 || !warningShown) {
       clearInterval(updateBody);
       return;

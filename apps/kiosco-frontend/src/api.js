@@ -11,6 +11,8 @@
  * /auth/refresh.
  */
 
+import { getKioskToken } from './lib/mode.js';
+
 const BASE = '/api';
 
 const TOKEN_KEY = 'dk_patient_token';
@@ -68,6 +70,11 @@ class ApiClient {
 
     if (opts._usePatient && this.patientToken) {
       headers['Authorization'] = `Bearer ${this.patientToken}`;
+    } else if (opts._useKiosk) {
+      // Modo kiosco: el token del kiosco viaja como Bearer para que el backend
+      // lo asocie (kiosk_id) y aplique los buckets de rate-limit por kiosco.
+      const kioskToken = getKioskToken();
+      if (kioskToken) headers['Authorization'] = `Bearer ${kioskToken}`;
     }
 
     const res = await fetch(`${BASE}${path}`, {
@@ -106,7 +113,7 @@ class ApiClient {
     // Token de Cloudflare Turnstile (anti-abuso). El backend lo exige cuando
     // está configurado (producción); en dev sin secret se ignora.
     if (turnstileToken) body.turnstile_token = turnstileToken;
-    return this._fetch('/auth/request-otp', { method: 'POST', body });
+    return this._fetch('/auth/request-otp', { method: 'POST', body, _useKiosk: true });
   }
 
   async verifyOtp({ requestId, code }) {

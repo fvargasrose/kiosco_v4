@@ -19,7 +19,13 @@ import { api, ApiError } from './api.js';
 import { setConfig, subscribe, state, clearPatient } from './state.js';
 import { navigate, registerScreen, getCurrentScreen, initRouter, screenForPath } from './router.js';
 import { startIdleTimer, stopIdleTimer } from './idle.js';
+import { initMode, isKioskMode } from './lib/mode.js';
 import { toast } from './components/toast.js';
+
+// Idle agresivo de kiosco (dispositivo compartido): avisa a los ~75 s y cierra
+// a los ~90 s. En modo web se usan los defaults relajados (28/30 min) de idle.js.
+const KIOSK_IDLE_WARN_MS = 75_000;
+const KIOSK_IDLE_LOGOUT_MS = 90_000;
 
 import { renderStandby } from './screens/standby.js';
 import { renderFaq } from './screens/faq.js';
@@ -97,6 +103,9 @@ subscribe((s) => {
     if (!idleRunning) {
       idleRunning = true;
       startIdleTimer({
+        ...(isKioskMode()
+          ? { warnAtMs: KIOSK_IDLE_WARN_MS, logoutAtMs: KIOSK_IDLE_LOGOUT_MS }
+          : {}),
         onTimeout: async () => {
           idleRunning = false;
           await api.logout();
@@ -145,6 +154,10 @@ window.addEventListener('pageshow', (e) => {
 
 async function bootstrap() {
   const root = document.getElementById('app');
+
+  // Resolver el modo (kiosco vs web) a partir del token del link (?k=<token>).
+  // Debe correr antes de cualquier navegación o arranque del idle timer.
+  initMode();
 
   let config;
   try {

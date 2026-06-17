@@ -20,7 +20,8 @@ function render(container, kiosks) {
     <h1 class="page-title">Kioscos</h1>
     <p style="color:var(--muted);margin-bottom:1.5rem;font-size:.9375rem">
       Gestiona los dispositivos kiosco de la clínica. Al crear un kiosco se genera
-      un token JWT que debes copiar antes de cerrar — no se puede recuperar después.
+      un link con token que debes copiar antes de cerrar — no se puede recuperar después.
+      Abre ese link en el dispositivo para que entre en modo kiosco.
     </p>
 
     <div style="margin-bottom:1.5rem">
@@ -52,17 +53,19 @@ function render(container, kiosks) {
       <div id="create-alert" style="margin-top:.75rem"></div>
     </div>
 
-    <div id="token-reveal" style="display:none;background:#fefce8;border:1px solid #fde047;border-radius:.5rem;padding:1.25rem;margin-bottom:1.5rem;max-width:640px">
+    <div id="token-reveal" style="display:none;background:#fefce8;border:1px solid #fde047;border-radius:.5rem;padding:1.25rem;margin-bottom:1.5rem;max-width:680px">
       <div style="font-weight:600;margin-bottom:.5rem;color:#713f12">
-        ⚠ Copia el token ahora — no se mostrará de nuevo
+        ⚠ Copia el link ahora — no se mostrará de nuevo
       </div>
       <div style="font-size:.8125rem;color:#713f12;margin-bottom:.75rem">
-        Pega este token en la URL del kiosco: <code>http://&lt;host&gt;:5173/?kiosk_token=TOKEN</code>
+        Abre este link en el dispositivo del kiosco. Activa el <strong>modo kiosco</strong>
+        (teclado en pantalla, cierre por inactividad rápido). Sin el link, el mismo sitio
+        funciona en <strong>modo web</strong> para celular/PC del paciente.
       </div>
       <div style="display:flex;gap:.5rem;align-items:center">
         <input id="token-value" type="text" readonly class="form-input"
                style="flex:1;font-family:monospace;font-size:.75rem;box-sizing:border-box;background:#fff">
-        <button class="btn btn-secondary" id="btn-copy-token" style="white-space:nowrap">Copiar</button>
+        <button class="btn btn-secondary" id="btn-copy-token" style="white-space:nowrap">Copiar link</button>
       </div>
       <div style="margin-top:.5rem">
         <button class="btn btn-secondary" id="btn-close-reveal" style="font-size:.8125rem;padding:.25rem .75rem">
@@ -186,9 +189,9 @@ function wireEvents(container, initialKiosks) {
         device_type: container.querySelector('#kiosk-device-type').value,
       });
 
-      // Ocultar form, mostrar token
+      // Ocultar form, mostrar el link completo del kiosco
       formEl.style.display = 'none';
-      tokenInput.value = res.kiosk_token;
+      tokenInput.value = kioskLink(res.kiosk_token);
       tokenReveal.style.display = 'block';
 
       // Refrescar la tabla
@@ -206,7 +209,7 @@ function wireEvents(container, initialKiosks) {
     try {
       await navigator.clipboard.writeText(tokenInput.value);
       btnCopy.textContent = '¡Copiado!';
-      setTimeout(() => { btnCopy.textContent = 'Copiar'; }, 2000);
+      setTimeout(() => { btnCopy.textContent = 'Copiar link'; }, 2000);
     } catch {
       tokenInput.select();
     }
@@ -267,6 +270,12 @@ async function refreshList(container) {
   } catch {
     listEl.innerHTML = `<div class="alert alert-error">Error al recargar la lista.</div>`;
   }
+}
+
+function kioskLink(token) {
+  // El frontend del paciente vive en la raíz del mismo dominio que el admin
+  // (Caddy: /admin* → panel, / → kiosco). El token entra por ?k=<token>.
+  return `${window.location.origin}/?k=${encodeURIComponent(token)}`;
 }
 
 function fmtDate(iso) {
