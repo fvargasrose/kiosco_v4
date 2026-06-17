@@ -273,9 +273,12 @@ async function refreshList(container) {
 }
 
 function kioskLink(token) {
-  // El frontend del paciente vive en la raíz del mismo dominio que el admin
-  // (Caddy: /admin* → panel, / → kiosco). El token entra por ?k=<token>.
-  return `${window.location.origin}/?k=${encodeURIComponent(token)}`;
+  // En producción el panel y el kiosco comparten dominio (Caddy: /admin* → panel,
+  // / → kiosco), así que window.location.origin es el correcto. En desarrollo el
+  // admin corre en :5174 y el frontend del paciente en :5173 → se ajusta el puerto.
+  const { protocol, hostname, port, origin } = window.location;
+  const base = port === '5174' ? `${protocol}//${hostname}:5173` : origin;
+  return `${base}/?k=${encodeURIComponent(token)}`;
 }
 
 function fmtDate(iso) {

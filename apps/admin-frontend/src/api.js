@@ -28,7 +28,10 @@ class AdminApiClient {
 
   async _fetch(path, opts = {}) {
     const headers = { Accept: 'application/json', ...(opts.headers || {}) };
-    if (!(opts.body instanceof FormData)) {
+    // Solo declarar JSON cuando hay cuerpo: con Content-Type: application/json y
+    // body vacío, Fastify responde 400 ("Body cannot be empty"). Afectaba a las
+    // peticiones sin payload (DELETE de revocar kiosco, logout, etc.).
+    if (opts.body && !(opts.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
