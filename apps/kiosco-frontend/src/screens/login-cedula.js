@@ -157,7 +157,13 @@ export function renderLoginCedula(container, params, navigate) {
 
       if (err instanceof ApiError) {
         if (err.status === 429) {
-          showError('Demasiados intentos. Espera unos minutos antes de volver a intentar.');
+          const secs = Number(err.body?.retry_after_seconds) || 0;
+          let wait = 'un momento';
+          if (secs > 0) {
+            const mins = Math.ceil(secs / 60);
+            wait = mins <= 1 ? 'un minuto' : `${mins} minutos`;
+          }
+          showError(`Ya pediste un código hace poco. Espera ${wait} y vuelve a intentar.`);
         } else if (err.status === 401) {
           showError('Si el número está registrado, recibirás un código en breve.');
         } else if (err.status === 403) {

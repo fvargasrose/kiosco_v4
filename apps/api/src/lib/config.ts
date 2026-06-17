@@ -57,9 +57,9 @@ const ConfigSchema = z.object({
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(5),
 
   // -------- Rate limiting --------
-  RATE_LIMIT_OTP_PER_PHONE_PER_HOUR: z.coerce.number().int().positive().default(3),
+  RATE_LIMIT_OTP_PER_PHONE_PER_HOUR: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_OTP_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(10),
-  RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR: z.coerce.number().int().positive().default(30),
+  RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_LOGIN_ATTEMPTS_BEFORE_LOCK: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
 

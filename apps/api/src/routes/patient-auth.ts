@@ -39,6 +39,7 @@ import {
   signPatientSession,
   verifyPatientSession,
   refreshPatientSession,
+  verifyKioskToken,
 } from '../lib/jwt.js';
 import { config } from '../lib/config.js';
 import { verifyTurnstile, isEnforced as isTurnstileEnforced } from '../lib/turnstile.js';
@@ -103,18 +104,51 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     const { phone, policy_version, policy_hash } = parsed.data;
 
+    // 1b. Resolver el modo: si llega un kiosk_token válido (Bearer) de un kiosco
+    //     activo, las solicitudes se atribuyen a ese kiosco (kiosk_id) y usan
+    //     los buckets de rate-limit por kiosco. Token inválido/ausente → modo web
+    //     (no se bloquea; el muro web son los buckets por teléfono/IP + Turnstile).
+    let kioskId: string | null = null;
+    const kioskBearer = extractBearer(request.headers.authorization);
+    if (kioskBearer) {
+      try {
+        const claims = await verifyKioskToken(kioskBearer);
+        const k = await db.query<{ is_active: boolean }>(
+          `SELECT is_active FROM kiosks WHERE id = $1`,
+          [claims.sub],
+        );
+        if (k.rows[0]?.is_active) kioskId = claims.sub;
+      } catch {
+        // Token inválido o expirado → se trata como acceso web.
+      }
+    }
+
     // 2. Rate limiting anti-abuso (plan_abierto.md §7.2). Acceso web público
     //    (Opción A): el muro ya no es el kiosk_token sino estos buckets +
     //    Turnstile + anti-enumeración. Los buckets se evalúan ANTES de Turnstile
     //    para no gastar siteverify ante un flood, y antes de cualquier
     //    lookup/envío. El bucket global protege contra abuso distribuido del SMS.
-    const buckets = [
+    // Buckets por teléfono y global aplican en ambos modos. La diferencia: en
+    // modo kiosco (dispositivo compartido) el muro por IP no sirve —todos los
+    // pacientes comparten la IP del kiosco— así que se reemplaza por un bucket
+    // por kiosco más permisivo (RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR).
+    const phoneBuckets = [
       { key: `otp:cooldown:${phone}`, max: 1,                                          secs: 60,    type: 'phone_cooldown' },
       { key: `otp:phone:${phone}`,    max: config.RATE_LIMIT_OTP_PER_PHONE_PER_HOUR,   secs: 3600,  type: 'phone_hour' },
       { key: `otp:phoneday:${phone}`, max: 5,                                          secs: 86400, type: 'phone_day' },
-      { key: `otp:ip:${request.ip}`,  max: 5,                                          secs: 3600,  type: 'ip_hour' },
-      { key: `otp:ipday:${request.ip}`, max: 20,                                       secs: 86400, type: 'ip_day' },
-      { key: `otp:global`,            max: 100,                                        secs: 3600,  type: 'global_hour' },
+    ];
+    const scopeBuckets = kioskId
+      ? [
+          { key: `otp:kiosk:${kioskId}`, max: config.RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR, secs: 3600, type: 'kiosk_hour' },
+        ]
+      : [
+          { key: `otp:ip:${request.ip}`,   max: 5,  secs: 3600,  type: 'ip_hour' },
+          { key: `otp:ipday:${request.ip}`, max: 20, secs: 86400, type: 'ip_day' },
+        ];
+    const buckets = [
+      ...phoneBuckets,
+      ...scopeBuckets,
+      { key: `otp:global`, max: 100, secs: 3600, type: 'global_hour' },
     ];
     for (const b of buckets) {
       const rl = await db.query<{ allowed: boolean; retry_after_secs: number }>(
@@ -166,7 +200,7 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
         (kiosk_id, patient_cedula_hash, patient_phone, policy_version, policy_text_hash, ip_address, user_agent)
        VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
       [
-        null, // kiosk_id: acceso web público (sin kiosco)
+        kioskId, // kiosk_id: modo kiosco si hay token válido; null en web
         phone,
         policy_version,
         policy_hash,
@@ -241,7 +275,7 @@ export async function patientAuthRoutes(app: FastifyInstance): Promise<void> {
        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         requestId,
-        null, // kiosk_id: acceso web público (sin kiosco)
+        kioskId, // kiosk_id: modo kiosco si hay token válido; null en web
         phone,
         patient.email ?? null,
         storedHash,
