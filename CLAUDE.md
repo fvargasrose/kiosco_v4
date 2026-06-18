@@ -4,7 +4,7 @@
    - apps/api/src/routes/payments.ts (webhook Wompi)
    - apps/api/src/lib/reconciler.ts
    - apps/api/src/lib/license/* (middleware de licencias)
-   - apps/api/migrations/001-011_*.sql (migraciones ya aplicadas)
+   - apps/api/migrations/001-017_*.sql (migraciones ya aplicadas)
 
 2. Antes de modificar cualquier archivo, leerlo COMPLETO primero con view.
    No editar a ciegas basado en suposiciones.
@@ -20,9 +20,14 @@
 5. Comandos de verificación obligatorios al terminar cada tarea:
    - pnpm --filter @dentalkiosco/api typecheck
    - pnpm --filter @dentalkiosco/api test
-   - pnpm --filter @dentalkiosco/api lint
-   - (frontend) pnpm --filter kiosco-frontend build
-   - (frontend) pnpm --filter admin-frontend build
+   - pnpm lint   (script de RAÍZ, no del paquete api; ver nota abajo)
+   - (frontend) pnpm --filter @dentalkiosco/kiosco-frontend build
+   - (frontend) pnpm --filter @dentalkiosco/admin-frontend build
+
+   ⚠️ `pnpm lint` está ROTO desde el repo (preexistente): el script raíz es
+   `eslint .` pero NO existe `eslint.config.js` y ESLint v9 exige flat config.
+   Falla con "couldn't find an eslint.config file". Hasta crear esa config,
+   las puertas reales de verificación son typecheck + test + builds.
 
 6. Commits: uno por tarea completada, con mensaje convencional:
    feat(scope): descripción / fix(scope): descripción / chore: descripción
@@ -75,9 +80,9 @@ dentalkiosco/
 │   │   │   ├── server.ts      # Entry point
 │   │   │   ├── migrate.ts     # Migration runner
 │   │   │   └── setup.ts       # CLI: create-admin (usado por el installer)
-│   │   ├── migrations/        # 001-011 SQL versionadas
+│   │   ├── migrations/        # 001-017 SQL versionadas
 │   │   ├── uploads/           # Archivos subidos (standby media, fotos dentistas)
-│   │   └── tests/             # 10 archivos · 195 tests (Vitest)
+│   │   └── tests/             # 20 archivos · 287 tests (Vitest)
 │   ├── kiosco-frontend/       # Vanilla JS + Vite → dist/
 │   │   └── src/
 │   │       ├── screens/       # standby, login-cedula, login-otp, home,
@@ -108,7 +113,7 @@ dentalkiosco/
 │   │   └── Caddyfile.prod     # Producción (Let's Encrypt)
 │   └── wireguard/
 ├── docker-compose.yml         # Stack completo (Caddy + API + Postgres + Redis)
-├── docker-compose.override.yml  # Dev: expone postgres:5433 y redis:6380 al host
+├── docker-compose.override.yml  # Dev: expone postgres:5434 y redis:6381 al host
 ├── docker-compose.prod.yml    # Prod: usa Caddyfile.prod
 ├── guia.md                    # Guía de desarrollo local detallada
 ├── produccion.md              # Guía de deploy en Hetzner + mantenimiento
@@ -149,7 +154,7 @@ DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api migrate:verify  #
 ```bash
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api typecheck
 DOTENV_CONFIG_PATH=$(pwd)/.env pnpm --filter @dentalkiosco/api test
-# → 195 tests · 10 archivos · siempre en mock mode
+# → 287 tests · 20 archivos · siempre en mock mode
 ```
 
 ### Arrancar API (desarrollo)
@@ -189,9 +194,9 @@ Idempotente (ON CONFLICT DO NOTHING). En producción, el installer lo llama auto
 ```bash
 # ── Desarrollo ──
 POSTGRES_HOST=localhost        # (en dev, fuera de Docker)
-POSTGRES_PORT=5433             # override del docker-compose.override.yml
+POSTGRES_PORT=5434             # override del docker-compose.override.yml (antes 5433)
 REDIS_HOST=localhost
-REDIS_PORT=6380
+REDIS_PORT=6381                # override del docker-compose.override.yml (antes 6380)
 JWT_SECRET=...                 # ≥ 32 chars
 ENCRYPTION_KEY=...             # ≥ 32 chars
 
@@ -201,9 +206,9 @@ LICENSE_KEY=DEV-LOCAL-...      # ignorado si LICENSE_DEV_MODE=true
 
 # ── Funcionalidades ──
 OTP_REQUIRED=true              # false = login sin código (solo cédula + teléfono)
-DEV_MOCK_EXTERNAL_SERVICES=false  # true = mock Dentalink + Twilio + Resend + Wompi
-DEV_MOCK_WOMPI=true            # true = mock solo Wompi
-DEV_LOG_OTP=true               # muestra OTP en logs
+DEV_MOCK_EXTERNAL_SERVICES=false  # POLÍTICA: SIEMPRE false → todo real (Dentalink, SMS, email)
+DEV_MOCK_WOMPI=false           # POLÍTICA: SIEMPRE false → Wompi real (producción)
+DEV_LOG_OTP=true               # muestra OTP en logs (además del envío real)
 ```
 
 > **Bug resuelto:** `z.coerce.boolean()` interpreta `"false"` como `true`.
@@ -242,22 +247,28 @@ El modo se computa dinámicamente en `computeMode()` (cache.ts) — nunca se baj
 
 ---
 
-## Modo desarrollo con mocks
+## Modo desarrollo — TODO REAL (decisión 2026-06-16)
 
-Configuración actual del `.env` de desarrollo:
+**Política del proyecto:** local y producción operan SIEMPRE contra servicios
+**reales**. Local sirve para probar contra lo real ANTES de commitear a git.
+NO volver a poner mocks en el `.env` de dev.
 
 | Variable | Valor | Efecto |
 |----------|-------|--------|
-| `DEV_MOCK_EXTERNAL_SERVICES` | `false` | Dentalink real; Twilio mock; Resend real |
-| `DEV_MOCK_WOMPI` | `true` | Wompi simulado |
-| `DEV_LOG_OTP` | `true` | OTP visible en log |
+| `DEV_MOCK_EXTERNAL_SERVICES` | `false` | Dentalink, **SMS (LabsMobile)** y email REALES |
+| `DEV_MOCK_WOMPI` | `false` | Wompi REAL (`production`) |
+| `DEV_LOG_OTP` | `true` | OTP visible en log, **además** del SMS real |
 
-Para simular un pago aprobado con Wompi mock:
-```bash
-curl -X POST http://localhost:3000/webhooks/wompi \
-  -H "Content-Type: application/json" \
-  -d '{"event":"transaction.updated","data":{"transaction":{"reference":"<ref>","status":"APPROVED","amount_in_cents":100000}},"sent_at":"2026-05-20T00:00:00Z","signature":{"checksum":"mock","properties":[]}}'
-```
+Implicaciones de "todo real" en local:
+- Un login con OTP **envía un SMS real** vía LabsMobile (gasta saldo de la cuenta).
+- Las credenciales Wompi de local == producción (`WOMPI_ENVIRONMENT=production`,
+  api_url, public/private/integrity/events). Un pago en local es **real**. El
+  webhook de Wompi llega al dominio de prod, no a localhost; el reconciliador en
+  local igual consulta el estado por API.
+- Selección de proveedor SMS en `apps/api/src/lib/sms.ts`: mock si
+  `DEV_MOCK_EXTERNAL_SERVICES`; si no, LabsMobile (si configurado); luego Twilio; luego mock.
+- Los **tests** siguen en mock siempre (lo fuerza `vitest.config.ts`), así que
+  `pnpm test` nunca gasta servicios reales.
 
 ---
 
@@ -357,6 +368,34 @@ Detecta transacciones en estado `PENDING` cuyo estado real en Wompi es `APPROVED
 
 ---
 
+## Acceso SSH a producción (Hetzner)
+
+- **Servidor:** `root@5.78.110.152` (`https://sistema.2ways.us`), hostname `dentalkiosco-prod`.
+- **Autenticación:** llave SSH `id_ed25519` (sin contraseña). La llave está
+  respaldada en el repo en `backup2/ssh/` (`id_ed25519`, `id_ed25519.pub`, `known_hosts`)
+  y normalmente ya está instalada en `~/.ssh/id_ed25519`. La misma llave abre Hetzner
+  Cloud y está autorizada en el servidor.
+- **Si `~/.ssh/id_ed25519` no existe**, restaurarla:
+  ```bash
+  mkdir -p ~/.ssh && chmod 700 ~/.ssh
+  cp backup2/ssh/id_ed25519 ~/.ssh/ && chmod 600 ~/.ssh/id_ed25519
+  cp backup2/ssh/id_ed25519.pub ~/.ssh/ && chmod 644 ~/.ssh/id_ed25519.pub
+  cat backup2/ssh/known_hosts >> ~/.ssh/known_hosts
+  ```
+- **Probar / desplegar:**
+  ```bash
+  ssh root@5.78.110.152 'hostname'                 # → dentalkiosco-prod
+  ssh root@5.78.110.152 'cd /opt/dentalkiosco && git pull && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml build api && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api'
+  ```
+- Credenciales completas (token gh-cli, `.env` de prod, etc.) en `docs/credenciales.md`.
+- ⚠️ El `Bash` tool corre en **sandbox sin red**: para `ssh`/`git push`/`git pull`
+  usar `dangerouslyDisableSandbox: true`. Aun así, si la WiFi local no tiene uplink
+  a internet, nada externo será alcanzable (verificar con `ping 8.8.8.8`).
+
+---
+
 ## Producción — resumen Docker
 
 ```bash
@@ -370,8 +409,26 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml restart api
 # Aplicar migraciones
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api node dist/migrate.js up
 
-# Health check
-curl https://<dominio>/health/ready | jq .
+# Health check (la salud JSON del API vive bajo /api/* en el dominio público;
+# /health/ready "pelado" en el dominio devuelve el HTML del SPA)
+curl https://<dominio>/api/health/ready | jq .
 ```
 
 Ver `produccion.md` para la guía completa de deploy en Hetzner.
+
+**Producción actual (2026-06-16):** Hetzner `5.78.110.152` → `https://sistema.2ways.us`,
+rama desplegada `para_produccion` @ `818677d`. El contenedor `dk-caddy` puede
+aparecer `unhealthy`: es FALSO (su healthcheck interno hace `wget` a `localhost:80`
+que redirige 308→https y a veces falla por `fork: Resource temporarily unavailable`);
+Caddy sirve tráfico 200 normal.
+
+---
+
+## Entorno local (post-reinstalación SO, 2026-06-16)
+
+- **Node 22 vive en nvm**, no en apt. Cargar antes de cualquier `node`/`pnpm`:
+  `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 22` (default ya es 22).
+- pnpm 9.4.0 vía corepack. `argon2` es nativo → recompila contra Node 22 con `pnpm install`.
+- Puertos dev reales: Postgres `localhost:5434`, Redis `localhost:6381`.
+- Respaldos y pasos de reinstalación en `backup2/` (`iniciar.md`, `README.md`,
+  `RESPALDO_EXTERNO.md`).

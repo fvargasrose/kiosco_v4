@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant P as Paciente
+    participant API as API
+    participant WO as Wompi
+    participant REC as Reconciliador
+    P->>API: POST /me/payments (saldo a pagar)
+    API->>WO: crea transacción
+    WO-->>API: referencia + QR
+    API-->>P: muestra QR
+    P->>WO: paga con app bancaria
+    alt Webhook
+        WO->>API: webhook (firma HMAC SHA256)
+        API->>API: verifica firma -> marca APPROVED
+    else Reconciliador (cron 1 min)
+        REC->>WO: consulta estado de PENDING
+        WO-->>REC: APPROVED / DECLINED
+        REC->>API: actualiza transacción
+    end
+    API->>P: comprobante por email

@@ -1,0 +1,38 @@
+digraph DentalKiosco {
+    rankdir=LR;
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fillcolor="#eeeeff"];
+
+    subgraph cluster_routes {
+        label="Rutas (apps/api/src/routes)"; color="#8888aa";
+        r_pauth[label="patient-auth"]; r_pme[label="patient-me"];
+        r_pay[label="payments"]; r_book[label="booking"];
+        r_kiosk[label="kiosk"]; r_aauth[label="admin-auth"];
+        r_aclinic[label="admin-clinic"]; r_atx[label="admin-transactions"];
+    }
+    subgraph cluster_lib {
+        label="Lib (apps/api/src/lib)"; color="#88aa88";
+        l_jwt[label="jwt"]; l_otp[label="otp"]; l_totp[label="totp"];
+        l_pwd[label="passwords (argon2id)"]; l_crypto[label="crypto (pgcrypto)"];
+        l_dl[label="dentalink"]; l_wo[label="wompi"]; l_rec[label="reconciler"];
+        l_sms[label="sms"]; l_mail[label="email"]; l_notif[label="notifications"];
+        l_audit[label="audit"]; l_log[label="logger (redacción)"];
+        l_amid[label="auth-middleware"]; l_pmid[label="patient-middleware"];
+        l_lic[label="license/*"]; l_ts[label="turnstile"];
+    }
+    node [fillcolor="#ffeeee"];
+    PG[label="PostgreSQL"]; RD[label="Redis"];
+
+    r_pauth -> {l_otp l_dl l_notif l_ts l_jwt};
+    r_pme -> {l_pmid l_dl l_jwt};
+    r_pay -> {l_wo l_rec l_audit};
+    r_book -> l_dl;
+    r_kiosk -> l_jwt;
+    r_aauth -> {l_pwd l_totp l_amid l_jwt l_audit};
+    r_aclinic -> {l_crypto l_amid l_audit};
+    r_atx -> {l_amid l_wo};
+
+    l_otp -> RD; l_jwt -> RD; l_rec -> l_wo;
+    l_crypto -> PG; l_audit -> PG; l_pwd -> PG;
+    l_sms -> l_notif [dir=back]; l_mail -> l_notif [dir=back];
+    l_lic -> RD;
+}

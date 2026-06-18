@@ -1,0 +1,38 @@
+flowchart TB
+    subgraph Cliente
+        K[Kiosco / Navegador paciente]
+        A[Panel Admin]
+    end
+    subgraph Borde
+        CF[Cloudflare + Turnstile]
+        CAD[Caddy 2 - TLS Let's Encrypt]
+    end
+    subgraph Backend
+        API[API Fastify - Node 22]
+        RL[Rate limit Redis]
+        LIC[licenseMiddleware]
+    end
+    subgraph Datos
+        PG[(PostgreSQL 16 - pgcrypto)]
+        RD[(Redis 7)]
+    end
+    subgraph Externos
+        DL[Dentalink API]
+        WO[Wompi]
+        SMS[LabsMobile / Twilio]
+        MAIL[Resend / SMTP]
+        LICSRV[License Server central]
+    end
+
+    K --> CF --> CAD --> API
+    A --> CAD
+    API --> RL
+    API --> LIC
+    API --> PG
+    API --> RD
+    API --> DL
+    API --> WO
+    API --> SMS
+    API --> MAIL
+    LIC -. heartbeat .-> LICSRV
+    WO -. webhook firmado .-> API
