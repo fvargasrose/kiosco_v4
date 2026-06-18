@@ -104,15 +104,30 @@ const CACHE_TTL_SLOTS = 60; // 1 min — cambia constantemente
 const CACHE_TTL_ESTADOS = 3_600; // 1h — acota el blast-radius si se cachea un id erróneo
 const REQUEST_TIMEOUT_MS = 10_000;
 
-// Los registros vigentes en Dentalink guardan el celular CON +57
-// (ej: "+573206505239"); algunos registros viejos vienen sin prefijo.
-// Canonizamos a "+57XXXXXXXXXX" tanto al LEER como al construir el filtro de
-// BÚSQUEDA y al CREAR, para que ingreso/registro siempre operen con +57.
+// Canonización para LECTURA/DISPLAY/ENVÍO: dejamos el celular como
+// "+57XXXXXXXXXX". El frontend ya envía con +57.
 function normalizeCelular(celular: string): string {
   if (!celular) return celular;
   if (celular.startsWith('+')) return celular;
   if (/^3\d{9}$/.test(celular)) return `+57${celular}`;
   return celular;
+}
+
+// Para BUSCAR en Dentalink probamos AMBOS formatos de celular: plano (10
+// dígitos) y con +57. Motivo (verificado en prod 2026-06-18): los registros
+// existentes están guardados SIN +57 (ej: "3206505239"), aunque el frontend
+// envía "+573206505239" — buscar solo con +57 devolvía 0 y el OTP nunca salía.
+// Probamos el plano primero (formato real de los datos) y +57 como respaldo
+// por si hubiera registros mixtos. No cambia lo que se envía/guarda, solo el
+// filtro de la consulta.
+function celularSearchVariants(celular: string): string[] {
+  const t = (celular ?? '').trim();
+  if (!t) return [];
+  const plain = t.replace(/^\+?57/, '');
+  if (/^3\d{9}$/.test(plain)) {
+    return [plain, `+57${plain}`];
+  }
+  return [t];
 }
 
 // ----- Mock data -----
@@ -554,20 +569,26 @@ class DentalinkClient {
     }
 
     try {
-      const filter = JSON.stringify({ celular: { eq: dlCelular } });
-      const data = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
-        '/api/v1/pacientes',
-        dentalinkToken!,
-        { query: { q: filter } },
-      );
-      const list = data.data ?? [];
-      if (list.length > 1) {
-        logger.warn(
-          { celular: maskPhone(celular), matchCount: list.length },
-          'Multiple Dentalink patients with same celular — taking first',
+      let raw: DentalinkPatient | null = null;
+      for (const variant of celularSearchVariants(celular)) {
+        const filter = JSON.stringify({ celular: { eq: variant } });
+        const data = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
+          '/api/v1/pacientes',
+          dentalinkToken!,
+          { query: { q: filter } },
         );
+        const list = data.data ?? [];
+        if (list.length > 1) {
+          logger.warn(
+            { celular: maskPhone(celular), matchCount: list.length },
+            'Multiple Dentalink patients with same celular — taking first',
+          );
+        }
+        if (list.length > 0) {
+          raw = list[0]!;
+          break;
+        }
       }
-      const raw = list[0] ?? null;
       const patient = raw ? { ...raw, celular: normalizeCelular(raw.celular) } : null;
       await setCached(cacheKey, patient ?? { not_found: true }, CACHE_TTL_PATIENT_LOOKUP);
       return patient;
@@ -1312,16 +1333,18 @@ class DentalinkClient {
       if (!(err instanceof DentalinkError && err.code === 'NOT_FOUND')) throw err;
     }
 
-    // Buscar por celular (Dentalink almacena sin +57)
+    // Buscar por celular probando ambos formatos (plano y +57)
     try {
-      const celFilter = JSON.stringify({ celular: { eq: dlCelular } });
-      const celRes = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
-        '/api/v1/pacientes',
-        dentalinkToken!,
-        { query: { q: celFilter } },
-      );
-      const byCelular = celRes.data?.[0] ?? null;
-      if (byCelular) return { ...byCelular, celular: normalizeCelular(byCelular.celular) };
+      for (const variant of celularSearchVariants(celular)) {
+        const celFilter = JSON.stringify({ celular: { eq: variant } });
+        const celRes = await dentalinkRequest<{ data?: DentalinkPatient[] }>(
+          '/api/v1/pacientes',
+          dentalinkToken!,
+          { query: { q: celFilter } },
+        );
+        const byCelular = celRes.data?.[0] ?? null;
+        if (byCelular) return { ...byCelular, celular: normalizeCelular(byCelular.celular) };
+      }
     } catch (err) {
       if (!(err instanceof DentalinkError && err.code === 'NOT_FOUND')) throw err;
     }
