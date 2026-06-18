@@ -10,14 +10,22 @@ out/
 *.tsbuildinfo
 
 # Environment - NEVER commit secrets
+backup2/
 .env
 .env.local
 .env.*.local
 .env.production
 .env.staging
 .env.backup
+.env.bak*
+*.bak
 secrets/
 *.key
+# Archivos de credenciales (NUNCA al repo)
+credenciales.md
+docs/credenciales.md
+credenciales*.md
+*credencial*
 *.pem
 
 # Logs
@@ -82,3 +90,5 @@ apps/api/uploads/dentists/*
 # Excluir dumps/backups SQL pero conservar migraciones en git
 *.sql
 !apps/api/migrations/*.sql
+credenciales_produccion.txt
+guia_produccion_v2.md
