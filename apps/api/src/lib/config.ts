@@ -57,9 +57,16 @@ const ConfigSchema = z.object({
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(5),
 
   // -------- Rate limiting --------
+  // Todos los buckets de OTP son configurables por env (defaults = comportamiento
+  // histórico). Subir estos valores en el .env afloja el rate-limit sin redeploy.
+  // El Hito 7 del plan moverá esto a la BD para configurarlo desde el panel admin.
+  RATE_LIMIT_OTP_COOLDOWN_SECS: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_OTP_PER_PHONE_PER_HOUR: z.coerce.number().int().positive().default(5),
-  RATE_LIMIT_OTP_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_OTP_PER_PHONE_PER_DAY: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_OTP_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_OTP_PER_IP_PER_DAY: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_OTP_PER_KIOSK_PER_HOUR: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_OTP_GLOBAL_PER_HOUR: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_LOGIN_ATTEMPTS_BEFORE_LOCK: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
 
