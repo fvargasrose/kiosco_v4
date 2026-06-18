@@ -16,12 +16,13 @@
 | # | Riesgo | Severidad | Estado hoy |
 |---|--------|-----------|-----------|
 | R1 | Secretos en disco/repo (`credenciales.md`, `.env.bak.*`) | 🔴 Alta | **Parcialmente mitigado**: `.gitignore` cubre y `credenciales.md` borrado; faltan rotación + sacar `.env.bak.*` |
-| R2 | MFA del admin desactivada | 🔴 Alta | **Mitigado interino**: `mfa_required=true` en prod (hoy fuerza **TOTP**; el usuario prefiere código por email → Hito 4b) |
+| R2 | MFA del admin desactivada | 🔴 Alta | **Pendiente (opción a elegida)**: `mfa_required=false` en prod ahora; sin 2FA hasta construir el **2FA por email** (Hito 4b) |
 | R3 | Login `cédula + teléfono` sin OTP (`OTP_REQUIRED=false`) | 🟡 Media (latente) | **No activo**: `login-direct` ya fue eliminado del backend; `OTP_REQUIRED=true` en prod. El flag quedó **muerto y engañoso** |
 | R4 | `cedula_hash` con SHA256 sin sal (reversible por fuerza bruta) | 🟡 Media | Presente en código y prod |
 | R5 | `app.encryption_key` inyectada por interpolación de string | 🟢 Baja | Presente (mitigada con chequeo de comillas) |
 | R6 | Gestión de usuarios admin pobre (sin UI, sin cambio de email, sin roles) | 🟡 Media | Solo CLI en server + reset por email |
 | R7 | TTL token kiosco 90 días; revisar CSP/CORS en prod | 🟢 Baja | Funcional; revisar |
+| R8 | Rate-limit de OTP/login **hardcoded** (no configurable; bloquea y solo se ajusta con redeploy o borrando contadores a mano) | 🟡 Media | Presente; hoy se limpia manual en BD/Redis |
 
 > **Nota sobre R3:** hoy NO existe el endpoint `login-direct` y el frontend web
 > exige OTP siempre (`login-cedula.js` "Opción A"). Poner `OTP_REQUIRED=false`
@@ -214,14 +215,66 @@ kiosco sigue funcionando tras ajuste de TTL.
 
 ---
 
+## Hito 7 — Rate-limit configurable desde el panel admin (cerrar R8)
+
+**Objetivo:** que el rate-limit de OTP/login se pueda **activar/desactivar** y
+**ajustar (límites y ventanas de tiempo) desde el panel admin**, en runtime, sin
+redeploy ni tener que limpiar contadores a mano en la BD/Redis.
+
+**Estado actual (verificado):**
+- Límites **hardcoded**: `server.ts` (`GLOBAL_MAX=300`, `ROUTE_MAX` por ruta) y
+  `config.ts` (`RATE_LIMIT_OTP_PER_PHONE_PER_HOUR=5`, `..._PER_IP_PER_HOUR=10`,
+  `..._PER_KIOSK_PER_HOUR=60`, `LOGIN_ATTEMPTS_BEFORE_LOCK=5`,
+  `LOCKOUT_MINUTES=15`).
+- Buckets de OTP en `patient-auth.ts` (cooldown 60 s, phone/hora, phone/día,
+  ip/hora, ip/día, global/hora) vía `fn_rate_limit_check` (tabla `rate_limits`).
+- Cambiar cualquiera exige **redeploy**; desbloquear a un usuario exige borrar
+  filas de `rate_limits` y claves `dk-rl:*` de Redis **a mano** (como se hizo el
+  2026-06-18 para `3148961701`).
+
+**Cambios propuestos:**
+1. Migración: parámetros de rate-limit en una tabla de settings (o columnas en
+   `clinic`): `rate_limit_enabled` (bool), `otp_per_phone_hour`, `otp_per_ip_hour`,
+   `otp_per_kiosk_hour`, `otp_global_hour`, `otp_cooldown_secs`,
+   `login_attempts_before_lock`, `login_lockout_minutes`. Con defaults = valores
+   actuales.
+2. Backend: leer esos valores **en runtime** (cacheados, TTL corto) en lugar de las
+   constantes; si `rate_limit_enabled=false`, **omitir** los buckets de OTP.
+3. Endpoints admin (`requireAdmin` + rol `admin`) para leer/editar, con validación
+   de rangos; auditar cada cambio en `audit_log`.
+4. Pantalla admin "Seguridad / Límites" con toggle on/off y campos de límites/tiempos.
+5. **Acción de desbloqueo** desde el panel (botón "limpiar bloqueo de este teléfono/IP")
+   que borre los buckets correspondientes — evita el SQL manual.
+
+> ⚠️ **Trade-off de seguridad (documentar en la UI):** desactivar el rate-limit, o
+> subirlo mucho, **reabre el abuso**: flooding de SMS (costo real con LabsMobile/
+> Twilio), spam de correos y enumeración de pacientes. **Recomendación:** mantener
+> un **piso global no desactivable** (un cap duro de seguridad, p.ej. el
+> `GLOBAL_MAX` de `server.ts`) aunque se apaguen los buckets por teléfono/IP, para
+> no quedar 100% expuestos. El toggle "desactivar" debería afectar solo los buckets
+> finos de OTP, no el backstop anti-DDoS.
+
+**Verificación:** tests de los endpoints (autorización, validación de rangos) y del
+comportamiento on/off (con `enabled=false` no bloquea; con valores nuevos respeta
+los límites); builds.
+
+**Rollback:** los parámetros tienen defaults = comportamiento actual; revertir
+commit deja todo como hoy.
+
+**No rompe nada:** con defaults iguales a los valores hardcoded, el comportamiento
+es idéntico hasta que el admin lo cambie.
+
+---
+
 ## Orden sugerido de ejecución
 
 1. **Hito 1** (rotación + borrar `.env.bak`) — rápido, alto impacto.
 2. **Hito 2** (eliminar flag muerto) — rápido, requiere tu decisión.
-3. **Hito 4** (gestión de usuarios) — feature útil, aislado.
-4. **Hito 6** (cabeceras/TTL) — rápido.
-5. **Hito 5** (cripto param) — bajo riesgo.
-6. **Hito 3** (hash cédula) — el más delicado, al final y por fases.
+3. **Hito 7** (rate-limit configurable desde admin) — desbloquea operación/pruebas; útil ya.
+4. **Hito 4** (gestión de usuarios + 2FA email) — feature útil, aislado.
+5. **Hito 6** (cabeceras/TTL) — rápido.
+6. **Hito 5** (cripto param) — bajo riesgo.
+7. **Hito 3** (hash cédula) — el más delicado, al final y por fases.
 
 ## Usuario admin por defecto (verificado)
 
