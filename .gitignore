@@ -19,6 +19,7 @@ backup2/
 .env.backup
 .env.bak*
 *.bak
+*.bak*
 secrets/
 *.key
 # Archivos de credenciales (NUNCA al repo)
