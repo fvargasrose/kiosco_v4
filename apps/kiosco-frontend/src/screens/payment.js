@@ -34,7 +34,13 @@ export async function renderPayment(container, params, navigate) {
     return null;
   }
 
-  const { treatmentId, amountCop, description, returnTo = 'treatments' } = params;
+  const { treatmentId, amountCop, description, returnTo = 'treatments', resumeReference } = params;
+
+  // Modo resumen: el paciente vuelve de Wompi (/pago/retorno/<ref>). Consultamos
+  // el estado y mostramos el resultado, con polling corto por si el webhook tarda.
+  if (resumeReference) {
+    return renderResume(container, resumeReference, navigate, returnTo);
+  }
 
   if (!amountCop || !description) {
     navigate(returnTo);
@@ -265,6 +271,76 @@ function handleStatusChange(result, container, navigate, returnTo, cleanup) {
   }
 
   // 'pending' — no-op
+}
+
+async function renderResume(container, reference, navigate, returnTo) {
+  let pollTimer = null;
+  let aborted = false;
+  const cleanup = () => {
+    aborted = true;
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+  };
+
+  container.innerHTML = `
+    <div class="screen">
+      <header class="screen-header"><h1>Pago</h1></header>
+      <div class="screen-body">
+        <div id="payment-content">${spinner({ text: 'Verificando el estado de tu pago...' })}</div>
+      </div>
+    </div>
+  `;
+  const content = container.querySelector('#payment-content');
+  if (!content) return cleanup;
+
+  const startedAt = Date.now();
+  const MAX_WAIT_MS = 45_000;
+
+  const poll = async () => {
+    if (aborted) return;
+    try {
+      const result = await api.getPaymentStatus(reference);
+      if (aborted) return;
+
+      if (isTerminal(result.status)) {
+        handleStatusChange(result, content, navigate, returnTo, cleanup);
+        return;
+      }
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        cleanup();
+        renderPendingNotice(content, navigate);
+        return;
+      }
+      pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
+    } catch (err) {
+      if (aborted) return;
+      if (err instanceof ApiError && (err.status === 404 || err.status === 401)) {
+        cleanup();
+        renderPendingNotice(content, navigate);
+        return;
+      }
+      pollTimer = setTimeout(poll, POLL_INTERVAL_SLOW_MS);
+    }
+  };
+
+  poll();
+  return cleanup;
+}
+
+function renderPendingNotice(container, navigate) {
+  container.innerHTML = `
+    <div class="alert alert-warning">
+      <strong>Tu pago se está procesando</strong>
+      <div style="margin-top: 0.5rem;">
+        Estamos confirmando tu pago con el banco. Recibirás el comprobante por correo
+        cuando se confirme.
+      </div>
+    </div>
+    <button type="button" class="btn btn-primary btn-lg" id="resume-home" style="margin-top: 1.5rem;">
+      Entendido
+    </button>
+  `;
+  container.querySelector('#resume-home').addEventListener('click', () => navigate('home'));
 }
 
 function renderCreationError(container, err, onBack) {

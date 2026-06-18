@@ -240,6 +240,11 @@ class WompiClient {
       // (se devuelve en el webhook como transaction.reference)
       // Para que llegue intacta, la pasamos en el field 'sku'
       sku: input.reference,
+      // Wompi redirige al paciente aquí al terminar el pago (y le añade
+      // `?id=<tx_id>&env=...`). Ponemos la reference en la RUTA (no en query)
+      // para que sobreviva intacta sin importar cómo Wompi concatene sus params.
+      // El frontend (bootstrap) detecta /pago/retorno/<ref> y muestra el resultado.
+      redirect_url: `${config.PUBLIC_BASE_URL.replace(/\/$/, '')}/pago/retorno/${input.reference}`,
       customer_data: input.customerEmail
         ? { email: input.customerEmail }
         : undefined,

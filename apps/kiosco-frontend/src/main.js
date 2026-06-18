@@ -189,12 +189,24 @@ async function bootstrap() {
   // Routing real: instalar back/forward y resolver la pantalla inicial según la
   // URL (deep-link / refresh) y la sesión.
   initRouter();
+
+  // Retorno de Wompi tras pagar: /pago/retorno/<reference> (Wompi le añade
+  // ?id=..&env=..). Reanudamos para mostrar el resultado del pago. La reference
+  // viaja en la ruta, así que sobrevive a los params que añade Wompi.
+  const payReturn = window.location.pathname.match(/^\/pago\/retorno\/(DK-[A-Za-z0-9-]+)/);
+
   const urlScreen = screenForPath(window.location.pathname);
 
   // Restaurar sesión persistida: si hay token, validarlo con un refresh.
   if (api.hasSession) {
     const ok = await api.refreshSession();
     if (ok && state.patient) {
+      // Retorno de Wompi con sesión viva → pantalla de pago en modo resumen.
+      if (payReturn) {
+        history.replaceState(null, '', '/');
+        navigate('payment', { resumeReference: payReturn[1] }, { replace: true });
+        return;
+      }
       // Respeta el deep-link a una pantalla conocida; '/' o desconocida → home.
       const target = urlScreen && urlScreen !== 'standby' ? urlScreen : 'home';
       navigate(target, {}, { replace: true });
@@ -203,9 +215,37 @@ async function bootstrap() {
     clearPatient();
   }
 
+  // Retorno de Wompi sin sesión (p.ej. el paciente pagó desde OTRO dispositivo
+  // escaneando el QR): mensaje genérico de confirmación. El dispositivo que
+  // generó el pago refleja el estado por su propio polling.
+  if (payReturn) {
+    history.replaceState(null, '', '/');
+    showPaymentReturnNoSession(root);
+    return;
+  }
+
   // Sin sesión: solo pantallas públicas por deep-link; el resto → landing.
   const target = urlScreen && PUBLIC_SCREENS.has(urlScreen) ? urlScreen : 'standby';
   navigate(target, {}, { replace: true });
+}
+
+function showPaymentReturnNoSession(root) {
+  root.innerHTML = `
+    <div class="screen">
+      <div class="screen-body" style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:100vh; text-align:center;">
+        <div class="empty-state-icon">✅</div>
+        <h2 style="margin-bottom: 1rem;">Gracias</h2>
+        <p>Estamos confirmando tu pago.</p>
+        <p style="color: var(--color-text-muted); margin-top: 0.5rem;">
+          Si realizaste el pago desde otro dispositivo, revisa la pantalla donde lo iniciaste.
+          El comprobante llegará a tu correo cuando el pago se confirme.
+        </p>
+        <button type="button" class="btn btn-primary btn-lg" style="margin-top: 2rem;" onclick="location.replace('/')">
+          Continuar
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 function showConfigurationErrorScreen(root, message) {

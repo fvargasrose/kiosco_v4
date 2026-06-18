@@ -16,7 +16,14 @@ export async function renderPaymentApple(container, params, navigate) {
     return null;
   }
 
-  const { treatmentId, amountCop, description, returnTo = 'treatments' } = params;
+  const { treatmentId, amountCop, description, returnTo = 'treatments', resumeReference } = params;
+
+  // Modo resumen: el paciente vuelve de Wompi (/pago/retorno/<ref>). No creamos
+  // un link nuevo; consultamos el estado de la transacción y mostramos el
+  // resultado (aprobado/rechazado), con un polling corto por si el webhook tarda.
+  if (resumeReference) {
+    return renderResume(container, resumeReference, navigate, returnTo);
+  }
 
   if (!amountCop || !description) {
     navigate(returnTo);
@@ -158,13 +165,14 @@ function renderPayScreen(container, payment, onCancel) {
       </div>
 
       <div class="ak-card" style="text-align:center;padding:24px;">
-        <a href="${escapeHtml(payment.url)}" target="_blank" rel="noopener"
+        <a href="${escapeHtml(payment.url)}"
            class="ak-btn-primary" id="pay-now-btn"
            style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;text-decoration:none;">
           <i class="ti ti-credit-card"></i> Pagar ahora
         </a>
         <div style="font-size:13px;color:var(--text2);margin-top:10px;">
-          Se abrirá Wompi para pagar con Nequi, PSE o tarjeta. Al terminar, vuelve a esta pantalla.
+          Se abrirá Wompi para pagar con Nequi, PSE o tarjeta. Al terminar te
+          traeremos de vuelta automáticamente.
         </div>
 
         ${isDesktop && qrSvg ? `
@@ -229,6 +237,87 @@ function handleStatusChange(result, container, navigate, returnTo, cleanup) {
       dismissible: false,
     });
   }
+}
+
+// Modo resumen tras volver de Wompi: consulta el estado de la transacción por
+// su reference y muestra el resultado. Si sigue 'pending' (el webhook puede
+// tardar unos segundos), hace polling corto antes de mostrar un aviso.
+async function renderResume(container, reference, navigate, returnTo) {
+  let pollTimer = null;
+  let aborted = false;
+  const cleanup = () => {
+    aborted = true;
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+  };
+
+  renderAppleShell(container, 'treatments', navigate, (main) => {
+    main.innerHTML = `
+      <div class="ak-page-header" style="margin-bottom:20px;">
+        <div>
+          <div class="ak-page-title">Confirmando tu pago</div>
+          <div class="ak-page-subtitle">Un momento por favor…</div>
+        </div>
+      </div>
+      <div id="payment-content">${spinner({ text: 'Verificando el estado de tu pago...' })}</div>
+    `;
+  });
+
+  const content = container.querySelector('#payment-content');
+  if (!content) return cleanup;
+
+  const startedAt = Date.now();
+  const MAX_WAIT_MS = 45_000;
+
+  const poll = async () => {
+    if (aborted) return;
+    try {
+      const result = await api.getPaymentStatus(reference);
+      if (aborted) return;
+
+      if (isTerminal(result.status)) {
+        handleStatusChange(result, content, navigate, returnTo, cleanup);
+        return;
+      }
+
+      // Aún 'pending': el webhook puede tardar. Reintentamos un rato.
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        cleanup();
+        renderPendingNotice(content, navigate, returnTo);
+        return;
+      }
+      pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
+    } catch (err) {
+      if (aborted) return;
+      // 404/401: la reference no es de este paciente o la sesión cayó.
+      if (err instanceof ApiError && (err.status === 404 || err.status === 401)) {
+        cleanup();
+        renderPendingNotice(content, navigate, returnTo);
+        return;
+      }
+      pollTimer = setTimeout(poll, POLL_INTERVAL_SLOW_MS);
+    }
+  };
+
+  poll();
+  return cleanup;
+}
+
+function renderPendingNotice(container, navigate, returnTo) {
+  container.innerHTML = `
+    <div class="ak-card" style="text-align:center;padding:32px;">
+      <i class="ti ti-clock" style="font-size:48px;color:var(--color-warning);margin-bottom:12px;"></i>
+      <div style="font-weight:600;font-size:16px;margin-bottom:8px;">Tu pago se está procesando</div>
+      <div style="font-size:14px;color:var(--text2);margin-bottom:20px;">
+        Estamos confirmando tu pago con el banco. Recibirás el comprobante por correo
+        cuando se confirme. El saldo de tu tratamiento puede tardar en actualizarse.
+      </div>
+      <button type="button" class="ak-btn-primary" id="resume-home" style="width:100%;padding:14px;">
+        Entendido
+      </button>
+    </div>
+  `;
+  container.querySelector('#resume-home').addEventListener('click', () => navigate('home'));
 }
 
 function renderCreationError(container, err, onBack) {
