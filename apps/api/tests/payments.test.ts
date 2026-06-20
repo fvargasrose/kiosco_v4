@@ -569,6 +569,75 @@ describe('POST /me/payments/widget', () => {
 });
 
 // =============================================================================
+// KIOSCO: payment link + QR + envío del enlace por correo
+// =============================================================================
+
+describe('POST /me/payments/kiosk', () => {
+  it('sin auth retorna 401', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/kiosk',
+      payload: { amount_cop: 50000, description: 'Test' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('crea payment link, devuelve url y reporta el envío del enlace', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/kiosk',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 50000, description: 'Pago consulta' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.reference).toMatch(/^DK-/);
+    expect(body.url).toContain('wompi.co');
+    expect(body.status).toBe('pending');
+    expect(body.expires_at).toBeTruthy();
+    expect(typeof body.email_sent).toBe('boolean');
+    // email_masked viene enmascarado (o null si el perfil no trae correo)
+    if (body.email_masked) expect(body.email_masked).toContain('***');
+  });
+
+  it('anti-IDOR: rechaza pago con treatment_id de OTRO paciente', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/kiosk',
+      headers: { authorization: `Bearer ${otherSessionToken}` },
+      payload: { treatment_id: 'tx-001', amount_cop: 100_000, description: 'Intento IDOR' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('NOT_FOUND');
+  });
+
+  it('persiste la transaction (pending, con payment_link_id) y es consultable por polling', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/kiosk',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 75000, description: 'Verif kiosco' },
+    });
+    const reference = res.json().reference;
+
+    const tx = await db.query<{ status: string; wompi_payment_link_id: string | null }>(
+      `SELECT status, wompi_payment_link_id FROM transactions WHERE wompi_reference = $1`,
+      [reference],
+    );
+    expect(tx.rows[0]?.status).toBe('pending');
+    expect(tx.rows[0]?.wompi_payment_link_id).toBeTruthy();
+
+    const poll = await app.inject({
+      method: 'GET',
+      url: `/me/payments/${reference}`,
+      headers: { authorization: `Bearer ${validSessionToken}` },
+    });
+    expect(poll.statusCode).toBe(200);
+    expect(poll.json().status).toBe('pending');
+  });
+});
+
+// =============================================================================
 // WEBHOOK WOMPI
 // =============================================================================
 

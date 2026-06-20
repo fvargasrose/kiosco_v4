@@ -207,6 +207,19 @@ class ApiClient {
     });
   }
 
+  // Modo kiosco (equipo compartido): crea un payment link, muestra QR y envía el
+  // enlace temporal al correo del paciente. Devuelve { reference, url, amount_cop,
+  // expires_at, email_sent, email_masked }.
+  async createKioskPayment({ treatmentId, amountCop, description }) {
+    const body = { amount_cop: amountCop, description };
+    if (treatmentId) body.treatment_id = treatmentId;
+    return this._fetch('/me/payments/kiosk', {
+      method: 'POST',
+      body,
+      _usePatient: true,
+    });
+  }
+
   async getPaymentStatus(reference) {
     return this._fetch(`/me/payments/${encodeURIComponent(reference)}`, {
       _usePatient: true,

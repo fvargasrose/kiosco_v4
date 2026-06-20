@@ -342,6 +342,73 @@ export async function sendPaymentReceipt(
 }
 
 // =============================================================================
+// Envío del ENLACE de pago (modo kiosco) — antes de pagar
+// =============================================================================
+
+export interface SendPaymentLinkParams {
+  to: string;
+  patientName?: string;
+  amountCop: number;
+  url: string;
+  expiresAt: Date;
+}
+
+/**
+ * Envía por correo el ENLACE de pago temporal (no el comprobante). Se usa en
+ * modo kiosco para que el paciente pague desde su propio celular sin teclear
+ * datos en el equipo compartido. El correo deja claro que el enlace es temporal
+ * y cuándo vence. Nunca lanza: devuelve false si falla.
+ */
+export async function sendPaymentLinkEmail(p: SendPaymentLinkParams): Promise<boolean> {
+  const clinicRes = await db.query<{ display_name: string }>(
+    `SELECT display_name FROM clinic WHERE id = 1`,
+  );
+  const clinicName = clinicRes.rows[0]?.display_name ?? 'Clínica Dental';
+
+  const amountFmt = new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(p.amountCop);
+
+  const minutes = Math.max(1, Math.round((p.expiresAt.getTime() - Date.now()) / 60_000));
+  const expiresFmt = p.expiresAt.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  try {
+    const sender = getEmailSender();
+    await sender.send({
+      to: p.to,
+      subject: `Tu enlace de pago — ${clinicName}`,
+      html: renderPaymentLinkHtml({
+        clinicName,
+        patientName: p.patientName ?? '',
+        amountFmt,
+        url: p.url,
+        minutes,
+        expiresFmt,
+      }),
+      text: renderPaymentLinkText({
+        clinicName,
+        patientName: p.patientName ?? '',
+        amountFmt,
+        url: p.url,
+        minutes,
+        expiresFmt,
+      }),
+    });
+    logger.info({ to: maskEmail(p.to), minutes }, 'Payment link email sent');
+    return true;
+  } catch (err) {
+    logger.error({ err, to: maskEmail(p.to) }, 'Failed to send payment link email');
+    return false;
+  }
+}
+
+// =============================================================================
 // Notificación al administrador
 // =============================================================================
 
@@ -640,6 +707,74 @@ function renderReceiptText(data: Omit<ReceiptData, 'wompiTxId'>): string {
     '',
     'Este comprobante es un soporte de tu pago en línea.',
     'Para el detalle contable, comunícate con recepción.',
+  ].join('\n');
+}
+
+interface PaymentLinkData {
+  clinicName: string;
+  patientName: string;
+  amountFmt: string;
+  url: string;
+  minutes: number;
+  expiresFmt: string;
+}
+
+function renderPaymentLinkHtml(data: PaymentLinkData): string {
+  const escape = (s: string) =>
+    String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, sans-serif; color: #0f172a; line-height: 1.5; max-width: 600px; margin: 0 auto; padding: 2rem;">
+  <div style="background: #0369a1; color: white; padding: 1.5rem; border-radius: 8px 8px 0 0; text-align: center;">
+    <h1 style="margin: 0; font-size: 1.5rem;">${escape(data.clinicName)}</h1>
+  </div>
+
+  <div style="background: white; padding: 2rem; border: 1px solid #e2e8f0; border-top: 0; border-radius: 0 0 8px 8px;">
+    <h2 style="color: #0369a1; margin-top: 0;">Tu enlace de pago</h2>
+    <p>Hola${data.patientName ? ' <strong>' + escape(data.patientName) + '</strong>' : ''}, usa el siguiente botón para pagar de forma segura desde tu celular.</p>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 1.5rem 0;">
+      <tr><td style="padding: 0.5rem 0; color: #64748b;">Monto a pagar:</td><td style="padding: 0.5rem 0; text-align: right; font-weight: bold; font-size: 1.25rem;">${escape(data.amountFmt)}</td></tr>
+    </table>
+
+    <div style="text-align: center; margin: 1.5rem 0;">
+      <a href="${escape(data.url)}" style="display: inline-block; background: #0369a1; color: white; text-decoration: none; padding: 0.85rem 2rem; border-radius: 8px; font-weight: bold; font-size: 1.05rem;">
+        Pagar ahora
+      </a>
+    </div>
+
+    <div style="background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 0.85rem 1rem; border-radius: 8px; font-size: 0.95rem;">
+      ⏱️ <strong>Este enlace es temporal:</strong> vence en aproximadamente ${data.minutes} minutos (a las ${escape(data.expiresFmt)}). Si expira, vuelve a generarlo desde el kiosco.
+    </div>
+
+    <p style="color: #64748b; font-size: 0.85rem; margin-top: 1.5rem; word-break: break-all;">
+      Si el botón no funciona, copia y pega este enlace:<br>${escape(data.url)}
+    </p>
+  </div>
+
+  <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 1rem;">
+    Pago procesado por Wompi · No respondas a este correo
+  </div>
+</body></html>`;
+}
+
+function renderPaymentLinkText(data: PaymentLinkData): string {
+  return [
+    `${data.clinicName} - Tu enlace de pago`,
+    '',
+    data.patientName ? `Hola ${data.patientName},` : 'Hola,',
+    'Usa este enlace para pagar de forma segura desde tu celular:',
+    '',
+    data.url,
+    '',
+    `Monto a pagar: ${data.amountFmt}`,
+    `IMPORTANTE: el enlace es temporal y vence en ~${data.minutes} minutos (a las ${data.expiresFmt}).`,
+    'Si expira, vuelve a generarlo desde el kiosco.',
   ].join('\n');
 }
 

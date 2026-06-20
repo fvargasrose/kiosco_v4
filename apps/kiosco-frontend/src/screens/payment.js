@@ -15,12 +15,15 @@
  * desde su celular escaneando el QR, así Wompi maneja todo el PCI compliance.
  */
 
+import QRCode from 'qrcode-svg';
 import { api, ApiError } from '../api.js';
 import { state } from '../state.js';
 import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { openWompiWidget } from '../lib/wompi-widget.js';
+import { isKioskMode } from '../lib/mode.js';
+import { pauseIdleTimer, resumeIdleTimer } from '../idle.js';
 
 // Intervalo de polling en ms. Lo subimos a 5s después de 1 minuto para no
 // abusar del backend si el paciente está demorando.
@@ -47,14 +50,22 @@ export async function renderPayment(container, params, navigate) {
     return null;
   }
 
+  // Modo kiosco (equipo compartido): QR + enlace por correo. Modo web: widget.
+  const kiosk = isKioskMode();
+
   // ===== Cleanup state =====
   let pollTimer = null;
   let aborted = false;
+
+  // En kiosco el paciente paga en su celular y no toca la pantalla: pausamos el
+  // idle agresivo mientras dura el pago (con tope de seguridad en idle.js).
+  if (kiosk) pauseIdleTimer();
 
   const cleanup = () => {
     aborted = true;
     if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
+    if (kiosk) resumeIdleTimer();
   };
 
   // ===== UI: loading inicial =====
@@ -78,10 +89,12 @@ export async function renderPayment(container, params, navigate) {
     navigate(returnTo);
   });
 
-  // ===== Crear el checkout del widget (sin payment link) =====
+  // ===== Crear el pago según el modo =====
   let payment;
   try {
-    payment = await api.createWidgetPayment({ treatmentId, amountCop, description });
+    payment = kiosk
+      ? await api.createKioskPayment({ treatmentId, amountCop, description })
+      : await api.createWidgetPayment({ treatmentId, amountCop, description });
   } catch (err) {
     if (aborted) return cleanup;
     renderCreationError(content, err, () => navigate(returnTo));
@@ -145,8 +158,12 @@ export async function renderPayment(container, params, navigate) {
     forcePoll();
   };
 
-  // ===== UI: botón del widget + estado =====
-  renderPayScreen(content, payment, onPay, () => navigate(returnTo));
+  // ===== UI según el modo =====
+  if (kiosk) {
+    renderKioskQrScreen(content, payment, () => { cleanup(); navigate(returnTo); });
+  } else {
+    renderPayScreen(content, payment, onPay, () => navigate(returnTo));
+  }
 
   pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
 
@@ -205,6 +222,65 @@ function renderPayScreen(container, payment, onPay, onCancel) {
 
   const payBtn = container.querySelector('#pay-now-btn');
   payBtn.addEventListener('click', () => onPay(payBtn));
+  container.querySelector('#cancel-btn').addEventListener('click', () => onCancel());
+}
+
+// Modo kiosco: QR para pagar desde el celular + aviso del enlace temporal por correo.
+function renderKioskQrScreen(container, payment, onCancel) {
+  let qrSvg = '';
+  try {
+    const qr = new QRCode({
+      content: payment.url, padding: 4, width: 260, height: 260,
+      color: '#0f172a', background: '#ffffff', ecl: 'M',
+    });
+    qrSvg = qr.svg();
+  } catch (err) {
+    console.error('[payment] QR generation failed', err);
+  }
+
+  const amountFmt = formatCop(payment.amount_cop);
+  const expiresIn = formatTimeUntil(payment.expires_at);
+  const emailLine = payment.email_sent && payment.email_masked
+    ? `También te enviamos el enlace a <strong>${escapeHtml(payment.email_masked)}</strong>. Es <strong>temporal</strong> y vence pronto.`
+    : `Escanea el código con la cámara de tu celular. El enlace es <strong>temporal</strong> y vence pronto.`;
+
+  container.innerHTML = `
+    <div class="payment-screen">
+      <div class="payment-instructions">
+        <h2>Paga desde tu celular</h2>
+        <p class="subtitle">${emailLine}</p>
+        <p class="subtitle"><strong>No escribas datos de pago en este equipo:</strong> usa tu teléfono.</p>
+      </div>
+
+      <div class="payment-card">
+        <div class="payment-qr" id="qr-holder">
+          ${qrSvg || '<div class="alert alert-error">No se pudo generar el código QR.</div>'}
+        </div>
+
+        <div class="payment-details">
+          <div class="payment-amount">${amountFmt}</div>
+          <div class="payment-status" id="status-line">
+            <span class="status-dot status-pending"></span>
+            Esperando pago...
+          </div>
+          <div class="payment-expiry" id="expiry-line">
+            Expira en <strong>${expiresIn}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="payment-actions">
+        <button type="button" class="btn btn-secondary btn-lg" id="cancel-btn">
+          Cancelar y volver
+        </button>
+      </div>
+
+      <div class="payment-help">
+        <p><strong>¿Problemas con el pago?</strong> También puedes realizarlo en recepción.</p>
+      </div>
+    </div>
+  `;
+
   container.querySelector('#cancel-btn').addEventListener('click', () => onCancel());
 }
 

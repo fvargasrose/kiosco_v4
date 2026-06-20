@@ -33,6 +33,14 @@ let warningShown = false;
 let onWarning = null;
 let onTimeout = null;
 
+// Pausa temporal del idle (p. ej. mientras el paciente paga en su celular con el
+// QR del kiosco: no toca la pantalla, pero no debe cerrarse la sesión). Tiene un
+// TOPE de seguridad: tras PAUSE_MAX_MS la pausa se levanta sola y el idle vuelve
+// a contar, para que un kiosco abandonado igual regrese a standby.
+let paused = false;
+let pauseCapId = null;
+const PAUSE_MAX_MS = 5 * 60_000; // 5 min
+
 const handler = () => {
   recordActivity();
   if (warningShown) {
@@ -59,6 +67,7 @@ export function startIdleTimer(hooks) {
 
   recordActivity();
   warningShown = false;
+  clearPause();
 
   // Eventos de actividad
   window.addEventListener('pointerdown', handler, { passive: true });
@@ -79,10 +88,48 @@ export function stopIdleTimer() {
     intervalId = null;
   }
   warningShown = false;
+  clearPause();
   closeActiveModal();
 }
 
+/**
+ * Pausa temporalmente el idle (no cierra la sesión por inactividad). Pensado
+ * para la pantalla de pago en modo kiosco, donde el paciente paga en su propio
+ * celular y no toca el kiosco. Se levanta sola tras PAUSE_MAX_MS (tope de
+ * seguridad) o al llamar resumeIdleTimer(). No-op si el idle no está corriendo.
+ */
+export function pauseIdleTimer() {
+  if (!intervalId) return;
+  paused = true;
+  recordActivity();
+  if (warningShown) {
+    closeActiveModal();
+    warningShown = false;
+  }
+  if (pauseCapId) clearTimeout(pauseCapId);
+  pauseCapId = setTimeout(() => {
+    paused = false;
+    pauseCapId = null;
+    recordActivity(); // reinicia el conteo al reanudar por tope
+  }, PAUSE_MAX_MS);
+}
+
+/** Reanuda el idle tras una pausa y reinicia el conteo de inactividad. */
+export function resumeIdleTimer() {
+  clearPause();
+  recordActivity();
+}
+
+function clearPause() {
+  paused = false;
+  if (pauseCapId) {
+    clearTimeout(pauseCapId);
+    pauseCapId = null;
+  }
+}
+
 function tick() {
+  if (paused) return;
   const elapsed = Date.now() - state.lastActivity;
 
   if (elapsed >= logoutAtMs) {
