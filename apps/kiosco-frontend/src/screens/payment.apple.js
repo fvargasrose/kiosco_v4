@@ -1,10 +1,10 @@
-import QRCode from 'qrcode-svg';
 import { api, ApiError } from '../api.js';
 import { state } from '../state.js';
 import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { renderAppleShell } from './shared/shell.apple.js';
+import { openWompiWidget } from '../lib/wompi-widget.js';
 
 const POLL_INTERVAL_FAST_MS = 3000;
 const POLL_INTERVAL_SLOW_MS = 5000;
@@ -69,10 +69,12 @@ export async function renderPaymentApple(container, params, navigate) {
   const content = container.querySelector('#payment-content');
   if (!content) return cleanup;
 
-  // Crear payment link
+  // Crear el checkout del widget (firma de integridad calculada en el backend).
+  // No crea un payment link: el pago ocurrirá en un modal de Wompi sobre esta
+  // misma página (el paciente no sale del sistema).
   let payment;
   try {
-    payment = await api.createPayment({ treatmentId, amountCop, description });
+    payment = await api.createWidgetPayment({ treatmentId, amountCop, description });
   } catch (err) {
     if (aborted) return cleanup;
     renderCreationError(content, err, () => { cleanup(); navigate(returnTo); });
@@ -80,9 +82,9 @@ export async function renderPaymentApple(container, params, navigate) {
   }
 
   if (aborted) return cleanup;
-  renderPayScreen(content, payment, () => { cleanup(); navigate(returnTo); });
 
-  // Polling
+  // Polling del estado real (autoridad: webhook → BD). Idéntico para widget y
+  // link: confirma aprobado/rechazado aunque el callback del widget no llegue.
   const startedAt = Date.now();
   let lastStatus = 'pending';
 
@@ -110,6 +112,36 @@ export async function renderPaymentApple(container, params, navigate) {
     }
   };
 
+  // Dispara una comprobación inmediata (p.ej. al cerrarse el modal del widget).
+  const forcePoll = () => {
+    if (aborted) return;
+    if (pollTimer) clearTimeout(pollTimer);
+    poll();
+  };
+
+  // Abre el widget de Wompi en un modal. Al cerrarse, confirmamos por polling.
+  const onPay = async (btn) => {
+    if (aborted) return;
+    const prevHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader"></i> Abriendo pago seguro…';
+    try {
+      await openWompiWidget(payment);
+    } catch (err) {
+      console.error('[payment] widget error', err);
+      toast('No pudimos abrir el pago seguro. Intenta de nuevo.', 'error');
+    } finally {
+      if (!aborted) {
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+      }
+    }
+    // Tras cerrar el widget, confirmar el estado real de inmediato.
+    forcePoll();
+  };
+
+  renderPayScreen(content, payment, onPay, () => { cleanup(); navigate(returnTo); });
+
   pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
 
   // Reanudar el polling al volver a la app (§10): tras pagar en Wompi/Nequi el
@@ -128,28 +160,9 @@ export async function renderPaymentApple(container, params, navigate) {
 
 // ─── Renderers ───────────────────────────────────────────────────────────────
 
-function renderPayScreen(container, payment, onCancel) {
-  // En móvil el paciente ya está en su teléfono: el camino principal es el botón
-  // "Pagar ahora" que abre el enlace de Wompi. El QR queda como ayuda para pagar
-  // desde OTRO dispositivo (típicamente escritorio).
-  const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-
-  let qrSvg = '';
-  if (isDesktop) {
-    try {
-      const qr = new QRCode({
-        // padding: 4 = zona silenciosa que exige la norma QR (con 2 muchas
-        // cámaras no leen el código en pantalla). Sin join: render por
-        // rectángulos, el más fiable para escanear desde un monitor.
-        content: payment.url, padding: 4, width: 280, height: 280,
-        color: '#1d1d1f', background: '#ffffff', ecl: 'M',
-      });
-      qrSvg = qr.svg();
-    } catch (err) {
-      console.error('[payment] QR generation failed', err);
-    }
-  }
-
+function renderPayScreen(container, payment, onPay, onCancel) {
+  // El botón abre el Widget de Wompi en un modal SOBRE esta página: el paciente
+  // paga con Nequi/tarjeta sin salir del sistema (PSE puede redirigir al banco).
   const amountFmt = formatCop(payment.amount_cop);
 
   container.innerHTML = `
@@ -165,24 +178,15 @@ function renderPayScreen(container, payment, onCancel) {
       </div>
 
       <div class="ak-card" style="text-align:center;padding:24px;">
-        <a href="${escapeHtml(payment.url)}"
+        <button type="button"
            class="ak-btn-primary" id="pay-now-btn"
-           style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;text-decoration:none;">
+           style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;border:none;cursor:pointer;">
           <i class="ti ti-credit-card"></i> Pagar ahora
-        </a>
+        </button>
         <div style="font-size:13px;color:var(--text2);margin-top:10px;">
-          Se abrirá Wompi para pagar con Nequi, PSE o tarjeta. Al terminar te
-          traeremos de vuelta automáticamente.
+          El pago se abrirá aquí mismo, en una ventana segura de Wompi (Nequi,
+          tarjeta o PSE). No saldrás del sistema.
         </div>
-
-        ${isDesktop && qrSvg ? `
-        <div class="pay-qr" style="margin-top:20px;border-top:1px solid var(--hairline,#e5e5e5);padding-top:16px;">
-          <div style="font-size:13px;font-weight:500;color:var(--text1);margin-bottom:8px;">
-            o escanea con tu celular
-          </div>
-          <div>${qrSvg}</div>
-        </div>
-        ` : ''}
 
         <div id="status-line" style="margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;">
           <span class="status-dot status-pending"></span>
@@ -203,6 +207,8 @@ function renderPayScreen(container, payment, onCancel) {
   `;
 
   updateExpiryCountdown(container, payment.expires_at);
+  const payBtn = container.querySelector('#pay-now-btn');
+  payBtn.addEventListener('click', () => onPay(payBtn));
   container.querySelector('#cancel-btn').addEventListener('click', onCancel);
 }
 

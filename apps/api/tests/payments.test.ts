@@ -489,6 +489,86 @@ describe('GET /me/payments/:reference', () => {
 });
 
 // =============================================================================
+// WIDGET DE WOMPI (pago en la misma página, sin salir del sistema)
+// =============================================================================
+
+describe('POST /me/payments/widget', () => {
+  it('sin auth retorna 401', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/widget',
+      payload: { amount_cop: 50000, description: 'Test' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('valida input: amount_cop excesivo (>50M COP) es rechazado', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/widget',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 100_000_000, description: 'Test' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('crea un checkout de widget con la firma de integridad y la reference', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/widget',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 50000, description: 'Pago consulta' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.reference).toMatch(/^DK-/);
+    expect(body.public_key).toBeTruthy();
+    expect(body.currency).toBe('COP');
+    expect(body.amount_in_cents).toBe(5_000_000); // 50000 COP * 100
+    expect(body.signature).toBeTruthy();
+    expect(body.status).toBe('pending');
+    expect(body.expires_at).toBeTruthy();
+  });
+
+  it('anti-IDOR: rechaza pago con treatment_id de OTRO paciente', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/widget',
+      headers: { authorization: `Bearer ${otherSessionToken}` },
+      payload: { treatment_id: 'tx-001', amount_cop: 100_000, description: 'Intento IDOR' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('NOT_FOUND');
+  });
+
+  it('persiste la transaction (pending, sin payment_link_id) y es consultable por polling', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/payments/widget',
+      headers: { authorization: `Bearer ${validSessionToken}` },
+      payload: { amount_cop: 75000, description: 'Verif widget' },
+    });
+    const reference = res.json().reference;
+
+    const tx = await db.query<{ status: string; wompi_payment_link_id: string | null }>(
+      `SELECT status, wompi_payment_link_id FROM transactions WHERE wompi_reference = $1`,
+      [reference],
+    );
+    expect(tx.rows[0]?.status).toBe('pending');
+    expect(tx.rows[0]?.wompi_payment_link_id).toBeNull();
+
+    // El polling existente (GET /me/payments/:reference) lo encuentra igual.
+    const poll = await app.inject({
+      method: 'GET',
+      url: `/me/payments/${reference}`,
+      headers: { authorization: `Bearer ${validSessionToken}` },
+    });
+    expect(poll.statusCode).toBe(200);
+    expect(poll.json().status).toBe('pending');
+  });
+});
+
+// =============================================================================
 // WEBHOOK WOMPI
 // =============================================================================
 

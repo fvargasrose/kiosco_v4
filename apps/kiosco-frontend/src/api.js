@@ -194,6 +194,19 @@ class ApiClient {
     });
   }
 
+  // Widget de Wompi (pago en un modal dentro de la misma página, sin salir del
+  // sistema). Devuelve { reference, public_key, currency, amount_in_cents,
+  // signature, expires_at } para abrir WidgetCheckout.
+  async createWidgetPayment({ treatmentId, amountCop, description }) {
+    const body = { amount_cop: amountCop, description };
+    if (treatmentId) body.treatment_id = treatmentId;
+    return this._fetch('/me/payments/widget', {
+      method: 'POST',
+      body,
+      _usePatient: true,
+    });
+  }
+
   async getPaymentStatus(reference) {
     return this._fetch(`/me/payments/${encodeURIComponent(reference)}`, {
       _usePatient: true,

@@ -47,6 +47,24 @@ export interface WompiPaymentLink {
   expiresAt: Date;
 }
 
+export interface WompiWidgetCheckoutInput {
+  amountCop: number;
+  reference: string;
+  expiresInMinutes?: number;
+}
+
+// Datos que el frontend necesita para abrir el Widget de Wompi (modal en la
+// misma página, sin sacar al paciente del sistema). NUNCA incluye el integrity
+// secret: solo la firma ya calculada.
+export interface WompiWidgetCheckout {
+  reference: string;
+  publicKey: string;
+  currency: 'COP';
+  amountInCents: number;
+  signature: string; // firma de integridad SHA256
+  expiresAt: Date;
+}
+
 export interface WompiTransactionDetails {
   id: string;
   status: WompiStatus;
@@ -124,6 +142,20 @@ function requireEventsSecret(): string {
     throw new WompiError('WOMPI_EVENTS_SECRET no configurado', 'UPSTREAM_ERROR');
   }
   return config.WOMPI_EVENTS_SECRET;
+}
+
+function requireIntegritySecret(): string {
+  if (!config.WOMPI_INTEGRITY_SECRET) {
+    throw new WompiError('WOMPI_INTEGRITY_SECRET no configurado', 'UPSTREAM_ERROR');
+  }
+  return config.WOMPI_INTEGRITY_SECRET;
+}
+
+function requirePublicKey(): string {
+  if (!config.WOMPI_PUBLIC_KEY) {
+    throw new WompiError('WOMPI_PUBLIC_KEY no configurado', 'UPSTREAM_ERROR');
+  }
+  return config.WOMPI_PUBLIC_KEY;
 }
 
 async function safeJson(res: Response): Promise<unknown> {
@@ -264,6 +296,73 @@ class WompiClient {
       reference: input.reference,
       amountInCents,
       status: 'PENDING',
+      expiresAt,
+    };
+  }
+
+  /**
+   * Firma de integridad del Widget/Web Checkout de Wompi.
+   *
+   * Wompi define: SHA256( reference + amount_in_cents + currency + integrity_secret )
+   * Doc: https://docs.wompi.co/docs/colombia/widget-checkout-web/#firma-de-integridad
+   *
+   * Se calcula SIEMPRE en el backend; el integrity secret NUNCA viaja al
+   * navegador. El frontend solo recibe el hash resultante.
+   */
+  generateIntegritySignature(
+    reference: string,
+    amountInCents: number,
+    currency: string,
+  ): string {
+    const secret = requireIntegritySecret();
+    const payload = `${reference}${amountInCents}${currency}${secret}`;
+    return createHash('sha256').update(payload).digest('hex');
+  }
+
+  /**
+   * Arma los parámetros que el frontend necesita para abrir el Widget de Wompi
+   * (pago en un modal dentro de la misma página — el paciente no sale del
+   * sistema). NO crea un payment link: la `reference` que generamos es la que
+   * Wompi reportará tal cual en el webhook (a diferencia de los payment links,
+   * donde Wompi inventa su propia reference). Así el webhook casa por
+   * `wompi_reference` sin tocar payments.ts.
+   *
+   * En mock mode devuelve un shape idéntico con firma falsa (para tests).
+   */
+  buildWidgetCheckout(input: WompiWidgetCheckoutInput): WompiWidgetCheckout {
+    const expiresInMinutes = input.expiresInMinutes ?? PAYMENT_LINK_TTL_MINUTES;
+    const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+    const amountInCents = Math.round(input.amountCop * 100);
+    const currency = 'COP' as const;
+
+    if (isMockMode()) {
+      logger.info(
+        { reference: input.reference, amountCop: input.amountCop },
+        '[MOCK] Wompi widget checkout creado',
+      );
+      return {
+        reference: input.reference,
+        publicKey: config.WOMPI_PUBLIC_KEY ?? 'pub_test_mock',
+        currency,
+        amountInCents,
+        signature: 'mock-integrity-signature',
+        expiresAt,
+      };
+    }
+
+    const publicKey = requirePublicKey();
+    const signature = this.generateIntegritySignature(
+      input.reference,
+      amountInCents,
+      currency,
+    );
+
+    return {
+      reference: input.reference,
+      publicKey,
+      currency,
+      amountInCents,
+      signature,
       expiresAt,
     };
   }

@@ -15,12 +15,12 @@
  * desde su celular escaneando el QR, así Wompi maneja todo el PCI compliance.
  */
 
-import QRCode from 'qrcode-svg';
 import { api, ApiError } from '../api.js';
 import { state } from '../state.js';
 import { spinner } from '../components/spinner.js';
 import { showModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
+import { openWompiWidget } from '../lib/wompi-widget.js';
 
 // Intervalo de polling en ms. Lo subimos a 5s después de 1 minuto para no
 // abusar del backend si el paciente está demorando.
@@ -78,10 +78,10 @@ export async function renderPayment(container, params, navigate) {
     navigate(returnTo);
   });
 
-  // ===== Crear el payment link =====
+  // ===== Crear el checkout del widget (sin payment link) =====
   let payment;
   try {
-    payment = await api.createPayment({ treatmentId, amountCop, description });
+    payment = await api.createWidgetPayment({ treatmentId, amountCop, description });
   } catch (err) {
     if (aborted) return cleanup;
     renderCreationError(content, err, () => navigate(returnTo));
@@ -90,10 +90,7 @@ export async function renderPayment(container, params, navigate) {
 
   if (aborted) return cleanup;
 
-  // ===== UI: QR + estado =====
-  renderQrScreen(content, payment, () => navigate(returnTo));
-
-  // ===== Polling =====
+  // ===== Polling del estado real (webhook → BD) =====
   const startedAt = Date.now();
   let lastStatus = 'pending';
 
@@ -104,30 +101,53 @@ export async function renderPayment(container, params, navigate) {
 
       if (aborted) return;
 
-      // Si el estado cambió, actualizamos UI
       if (result.status !== lastStatus) {
         lastStatus = result.status;
         handleStatusChange(result, content, navigate, returnTo, cleanup);
-        // En estado terminal, cleanup ya se llamó dentro de handleStatusChange
         if (isTerminal(result.status)) return;
       } else {
-        // Actualizar tiempo restante visualmente
         updateExpiryCountdown(content, payment.expires_at);
       }
 
-      // Programar siguiente poll
       const elapsed = Date.now() - startedAt;
       const interval = elapsed > POLL_SLOW_AFTER_MS ? POLL_INTERVAL_SLOW_MS : POLL_INTERVAL_FAST_MS;
       pollTimer = setTimeout(poll, interval);
     } catch (err) {
       if (aborted) return;
-      // Errores de red en el polling no son fatales: reintentamos
       console.warn('[payment] polling error', err);
       pollTimer = setTimeout(poll, POLL_INTERVAL_SLOW_MS);
     }
   };
 
-  // Primer poll después de 3s (dar tiempo al paciente a ver el QR)
+  const forcePoll = () => {
+    if (aborted) return;
+    if (pollTimer) clearTimeout(pollTimer);
+    poll();
+  };
+
+  // Abrir el widget de Wompi en un modal; al cerrarse, confirmar por polling.
+  const onPay = async (btn) => {
+    if (aborted) return;
+    const prevHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Abriendo pago seguro…';
+    try {
+      await openWompiWidget(payment);
+    } catch (err) {
+      console.error('[payment] widget error', err);
+      toast('No pudimos abrir el pago seguro. Intenta de nuevo.', 'error');
+    } finally {
+      if (!aborted) {
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+      }
+    }
+    forcePoll();
+  };
+
+  // ===== UI: botón del widget + estado =====
+  renderPayScreen(content, payment, onPay, () => navigate(returnTo));
+
   pollTimer = setTimeout(poll, POLL_INTERVAL_FAST_MS);
 
   return cleanup;
@@ -137,42 +157,21 @@ export async function renderPayment(container, params, navigate) {
 // Renderers
 // =============================================================================
 
-function renderQrScreen(container, payment, onCancel) {
-  // Generar el QR del payment.url
-  let qrSvg = '';
-  try {
-    const qr = new QRCode({
-      content: payment.url,
-      padding: 4, // zona silenciosa norma QR (con 2 muchas cámaras no leen en pantalla)
-      width: 280,
-      height: 280,
-      color: '#0f172a',
-      background: '#ffffff',
-      ecl: 'M',
-    });
-    qrSvg = qr.svg();
-  } catch (err) {
-    console.error('[payment] QR generation failed', err);
-  }
-
+function renderPayScreen(container, payment, onPay, onCancel) {
   const amountFmt = formatCop(payment.amount_cop);
   const expiresIn = formatTimeUntil(payment.expires_at);
 
   container.innerHTML = `
     <div class="payment-screen">
       <div class="payment-instructions">
-        <h2>Escanea con tu celular para pagar</h2>
+        <h2>Pagar de forma segura</h2>
         <p class="subtitle">
-          Abre la cámara de tu teléfono y apunta al código QR. Se abrirá la
-          página de pago de Wompi donde podrás pagar con Nequi, PSE o tarjeta.
+          El pago se abrirá aquí mismo, en una ventana segura de Wompi (Nequi,
+          tarjeta o PSE). No saldrás del sistema.
         </p>
       </div>
 
       <div class="payment-card">
-        <div class="payment-qr" id="qr-holder">
-          ${qrSvg || '<div class="alert alert-error">No se pudo generar el código QR.</div>'}
-        </div>
-
         <div class="payment-details">
           <div class="payment-amount">${amountFmt}</div>
           <div class="payment-status" id="status-line">
@@ -183,6 +182,10 @@ function renderQrScreen(container, payment, onCancel) {
             Expira en <strong>${expiresIn}</strong>
           </div>
         </div>
+
+        <button type="button" class="btn btn-primary btn-lg" id="pay-now-btn" style="margin-top:1rem;width:100%;">
+          Pagar ahora
+        </button>
       </div>
 
       <div class="payment-actions">
@@ -193,13 +196,15 @@ function renderQrScreen(container, payment, onCancel) {
 
       <div class="payment-help">
         <p>
-          <strong>¿Problemas para escanear?</strong> Pídele al recepcionista que te envíe
-          el enlace al celular, o realiza el pago directamente en recepción.
+          <strong>¿Problemas con el pago?</strong> También puedes realizarlo
+          directamente en recepción.
         </p>
       </div>
     </div>
   `;
 
+  const payBtn = container.querySelector('#pay-now-btn');
+  payBtn.addEventListener('click', () => onPay(payBtn));
   container.querySelector('#cancel-btn').addEventListener('click', () => onCancel());
 }
 
