@@ -416,8 +416,8 @@ curl https://<dominio>/api/health/ready | jq .
 
 Ver `produccion.md` para la guía completa de deploy en Hetzner.
 
-**Producción actual (2026-06-16):** Hetzner `5.78.110.152` → `https://sistema.2ways.us`,
-rama desplegada `para_produccion` @ `818677d`. El contenedor `dk-caddy` puede
+**Producción actual (2026-06-22):** Hetzner `5.78.110.152` → `https://sistema.2ways.us`,
+rama desplegada `main` @ `c072eca` (local, prod y origin alineados). El contenedor `dk-caddy` puede
 aparecer `unhealthy`: es FALSO (su healthcheck interno hace `wget` a `localhost:80`
 que redirige 308→https y a veces falla por `fork: Resource temporarily unavailable`);
 Caddy sirve tráfico 200 normal.

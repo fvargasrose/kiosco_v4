@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo · Pago tipo Widget (modal en la UI)</title>
+<style>
+  :root{
+    --azul:#2f6df6; --tinta:#1f2330; --gris:#5b6172;
+    --linea:#e1e4ec; --ok:#16a34a; --fondo:#eef1f6;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    margin:0; background:var(--fondo); color:var(--tinta);
+    min-height:100vh;
+  }
+  .banner{
+    background:#fff8e6; border-bottom:1px solid #f0e3b8;
+    color:#7a5b00; font-size:12.5px; padding:8px 16px; text-align:center;
+  }
+
+  /* ---------- Pantalla del sistema (kiosco) ---------- */
+  .sistema{ max-width:760px; margin:0 auto; padding:28px 20px; }
+  .topbar{
+    display:flex; align-items:center; gap:10px; margin-bottom:22px;
+  }
+  .logo{
+    width:34px;height:34px;border-radius:8px;background:var(--azul);
+    color:#fff;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:15px;
+  }
+  .topbar h1{ font-size:18px; margin:0; }
+  .topbar small{ color:var(--gris); display:block; font-weight:400; }
+
+  .card{
+    background:#fff; border:1px solid var(--linea); border-radius:14px;
+    padding:22px; box-shadow:0 2px 12px rgba(20,25,45,.05);
+  }
+  .card h2{ font-size:15px; margin:0 0 14px; }
+  .fila{ display:flex; justify-content:space-between; padding:9px 0; font-size:14px; border-bottom:1px dashed #eceef3; }
+  .fila:last-of-type{ border-bottom:none; }
+  .fila .lbl{ color:var(--gris); }
+  .total{ display:flex; justify-content:space-between; align-items:baseline; margin-top:14px; padding-top:14px; border-top:2px solid #f0f2f6; }
+  .total .monto{ font-size:26px; font-weight:700; }
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    width:100%; margin-top:20px; padding:15px;
+    font-size:16px; font-weight:600; cursor:pointer;
+    border:none; border-radius:11px; background:var(--azul); color:#fff;
+  }
+  .btn.sec{ background:#fff; color:var(--azul); border:1px solid var(--azul); }
+  .btn:disabled{ opacity:.5; cursor:default; }
+
+  .estado-ok{
+    margin-top:18px; padding:14px; border-radius:11px;
+    background:#ecfdf3; border:1px solid #bbf0cf; color:#0f7a37;
+    font-size:14px; display:none; align-items:center; gap:8px;
+  }
+  .estado-ok.visible{ display:flex; }
+
+  /* ---------- Modal tipo Widget ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(18,22,38,.55);
+    display:none; align-items:center; justify-content:center; padding:16px;
+    z-index:1000; backdrop-filter:blur(2px);
+  }
+  .overlay.visible{ display:flex; }
+  .modal{
+    width:380px; max-width:100%; background:#fff; border-radius:16px;
+    overflow:hidden; box-shadow:0 24px 60px rgba(10,15,35,.4);
+    animation:subir .22s ease;
+  }
+  @keyframes subir{ from{ transform:translateY(14px); opacity:0; } to{ transform:none; opacity:1; } }
+  .modal-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid #f0f2f6;
+  }
+  .modal-head .marca{ display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; }
+  .candado{ font-size:13px; color:var(--ok); }
+  .modal-x{ border:none;background:transparent;font-size:20px;cursor:pointer;color:#98a0b3;line-height:1; }
+  .modal-body{ padding:18px 16px 20px; }
+
+  .resumen-mini{ font-size:13px; color:var(--gris); margin-bottom:14px; }
+  .resumen-mini b{ color:var(--tinta); }
+
+  .medios{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+  .medio{
+    border:1.5px solid var(--linea); border-radius:10px; padding:12px 10px;
+    font-size:13px; cursor:pointer; text-align:center; background:#fff;
+  }
+  .medio.sel{ border-color:var(--azul); background:#f1f6ff; color:var(--azul); font-weight:600; }
+
+  .pagar{
+    width:100%; padding:14px; border:none; border-radius:11px;
+    background:var(--azul); color:#fff; font-size:15px; font-weight:600; cursor:pointer;
+  }
+  .pagar:disabled{ opacity:.5; cursor:default; }
+
+  /* estados procesando / aprobado dentro del modal */
+  .centro{ text-align:center; padding:26px 6px; }
+  .spinner{
+    width:46px;height:46px;border-radius:50%;
+    border:4px solid #e6eaf2; border-top-color:var(--azul);
+    margin:0 auto 16px; animation:girar .9s linear infinite;
+  }
+  @keyframes girar{ to{ transform:rotate(360deg); } }
+  .check{
+    width:56px;height:56px;border-radius:50%;background:var(--ok);
+    color:#fff; font-size:30px; display:flex;align-items:center;justify-content:center;
+    margin:0 auto 14px;
+  }
+  .centro h3{ margin:0 0 6px; font-size:17px; }
+  .centro p{ margin:0; color:var(--gris); font-size:13px; }
+
+  .hide{ display:none; }
+</style>
+</head>
+<body>
+
+  <div class="banner">DEMO · simula el patrón <b>Widget de Wompi</b> (pago en un modal dentro de tu UI). No hay conexión real ni se capturan datos de tarjeta.</div>
+
+  <!-- ===== Pantalla del sistema ===== -->
+  <div class="sistema">
+    <div class="topbar">
+      <div class="logo">DK</div>
+      <div>
+        <h1>DentalKiosco</h1>
+        <small>Confirmación de cita y pago</small>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen de tu cita</h2>
+      <div class="fila"><span class="lbl">Paciente</span><span>María González</span></div>
+      <div class="fila"><span class="lbl">Procedimiento</span><span>Profilaxis dental</span></div>
+      <div class="fila"><span class="lbl">Profesional</span><span>Dr. Hernández</span></div>
+      <div class="fila"><span class="lbl">Fecha</span><span>24/06/2026 · 10:30</span></div>
+
+      <div class="total">
+        <span class="lbl">Total a pagar</span>
+        <span class="monto">$120.000</span>
+      </div>
+
+      <button class="btn" id="btnPagar" onclick="abrirWidget()">🔒 Pagar con Wompi</button>
+
+      <div class="estado-ok" id="estadoOk">
+        ✅ <span>Pago aprobado · cita confirmada. (Referencia DEMO-7F3A2)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Modal tipo Widget ===== -->
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="marca">Wompi <span class="candado">🔒 seguro</span></div>
+        <button class="modal-x" onclick="cerrarWidget()" title="Cerrar">&times;</button>
+      </div>
+
+      <!-- Paso 1: elegir medio -->
+      <div class="modal-body" id="paso1">
+        <div class="resumen-mini">Pagas a <b>DentalKiosco</b> · Total <b>$120.000 COP</b></div>
+
+        <div class="medios" id="medios">
+          <div class="medio sel" data-m="Tarjeta">💳 Tarjeta</div>
+          <div class="medio" data-m="PSE">🏦 PSE</div>
+          <div class="medio" data-m="Nequi">📱 Nequi</div>
+          <div class="medio" data-m="Bancolombia">🟡 Bancolombia</div>
+        </div>
+
+        <button class="pagar" id="btnConfirmar" onclick="procesar()">Pagar $120.000</button>
+      </div>
+
+      <!-- Paso 2: procesando -->
+      <div class="modal-body hide" id="paso2">
+        <div class="centro">
+          <div class="spinner"></div>
+          <h3>Procesando pago…</h3>
+          <p>Confirmando con <span id="medioElegido">Tarjeta</span></p>
+        </div>
+      </div>
+
+      <!-- Paso 3: aprobado -->
+      <div class="modal-body hide" id="paso3">
+        <div class="centro">
+          <div class="check">✓</div>
+          <h3>¡Pago aprobado!</h3>
+          <p>Referencia DEMO-7F3A2</p>
+        </div>
+        <button class="pagar" onclick="volverSistema()">Volver al sistema</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  var overlay = document.getElementById('overlay');
+  var medioSel = 'Tarjeta';
+
+  // selección de medio de pago
+  document.getElementById('medios').addEventListener('click', function (e) {
+    var el = e.target.closest('.medio');
+    if (!el) return;
+    document.querySelectorAll('.medio').forEach(m => m.classList.remove('sel'));
+    el.classList.add('sel');
+    medioSel = el.dataset.m;
+  });
+
+  function abrirWidget(){
+    mostrarPaso(1);
+    overlay.classList.add('visible');
+  }
+  function cerrarWidget(){
+    overlay.classList.remove('visible');   // el sistema sigue intacto detrás
+  }
+  function mostrarPaso(n){
+    [1,2,3].forEach(i => document.getElementById('paso'+i).classList.toggle('hide', i!==n));
+  }
+  function procesar(){
+    document.getElementById('medioElegido').textContent = medioSel;
+    mostrarPaso(2);
+    // simula la espera del resultado (en real: webhook + polling de estado)
+    setTimeout(function(){ mostrarPaso(3); }, 2200);
+  }
+  function volverSistema(){
+    cerrarWidget();
+    document.getElementById('btnPagar').disabled = true;
+    document.getElementById('btnPagar').textContent = '✅ Pago realizado';
+    document.getElementById('estadoOk').classList.add('visible');
+  }
+
+  // cerrar al hacer clic fuera del modal (opcional)
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) cerrarWidget(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+joy@joypc:/home2/kiosko_v4$ claude --dangerously-skip-permissions
+
+Resume this session with:
+claude --resume fe21dde5-726e-4cdf-af2f-908834bec1e8
+joy@joypc:/home2/kiosko_v4$ claude
+
+Resume this session with:
+claude --resume f57159ba-b7d6-4e6f-9b96-3756d2945231
+joy@joypc:/home2/kiosko_v4$ claude --dangerously-skip-permissions
+
+Resume this session with:
+claude --resume 00eba8dc-b390-47e2-a929-ee0b1753e728
+
