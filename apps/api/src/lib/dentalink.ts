@@ -113,6 +113,68 @@ function normalizeCelular(celular: string): string {
   return celular;
 }
 
+// ── Presentación de nombres de odontólogos ───────────────────────────────────
+// Dentalink almacena los nombres en MAYÚSCULAS y SIN tildes (solo conserva la Ñ),
+// p.ej. "GERMAN ENRIQUE FERNANDEZ SILVA". Para mostrarlos con buena ortografía
+// los pasamos a Title Case y restauramos las tildes de palabras conocidas.
+
+/** Partículas que van en minúscula dentro de un nombre propio (salvo si abren). */
+const NAME_PARTICLES = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e']);
+
+/**
+ * Diccionario de tildes por palabra (clave = palabra sin tilde, en minúscula).
+ * Restaura los acentos que Dentalink no almacena. Ampliable al añadir
+ * odontólogos: agregar aquí la palabra sin tilde → forma acentuada.
+ */
+const NAME_ACCENTS: Record<string, string> = {
+  german: 'Germán',
+  fernandez: 'Fernández',
+  jimenez: 'Jiménez',
+  arbelaez: 'Arbeláez',
+  maria: 'María',
+  gonzalez: 'González',
+  rodriguez: 'Rodríguez',
+  melendez: 'Meléndez',
+};
+
+function titleCaseWord(word: string): string {
+  if (!word) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+/**
+ * Convierte un nombre crudo de Dentalink a presentación con buena ortografía:
+ * Title Case + partículas en minúscula + tildes restauradas. Es idempotente
+ * (aplicarla sobre un nombre ya formateado no lo altera).
+ */
+export function prettifyDentistName(raw: string | null | undefined): string {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .split(/\s+/)
+    .map((token, i) => {
+      const lower = token.toLowerCase();
+      if (NAME_ACCENTS[lower]) return NAME_ACCENTS[lower];
+      if (i > 0 && NAME_PARTICLES.has(lower)) return lower;
+      return titleCaseWord(token);
+    })
+    .join(' ');
+}
+
+// El dueño de la clínica debe encabezar las listas de odontólogos. En la
+// instalación validada es id_dentista=1 (Germán Enrique Fernández Silva);
+// se puede sobreescribir por entorno sin tocar código.
+const OWNER_DENTIST_ID = process.env.DENTALINK_OWNER_DENTIST_ID ?? '1';
+
+/** Devuelve una copia con el dueño primero; el resto conserva su orden (sort estable). */
+function sortOwnerFirst(list: DentalinkDentist[]): DentalinkDentist[] {
+  return [...list].sort((a, b) => {
+    if (a.id === OWNER_DENTIST_ID) return -1;
+    if (b.id === OWNER_DENTIST_ID) return 1;
+    return 0;
+  });
+}
+
 // Para BUSCAR en Dentalink probamos AMBOS formatos de celular: plano (10
 // dígitos) y con +57. Motivo (verificado en prod 2026-06-18): los registros
 // existentes están guardados SIN +57 (ej: "3206505239"), aunque el frontend
@@ -631,7 +693,7 @@ class DentalinkClient {
       id_paciente: a.id_paciente,
       paciente: a.nombre_paciente ?? a.paciente ?? '',
       id_dentista: String(a.id_dentista ?? ''),
-      dentista: a.nombre_dentista ?? a.dentista ?? '',
+      dentista: prettifyDentistName(a.nombre_dentista ?? a.dentista ?? ''),
       id_sucursal: a.id_sucursal,
       sucursal: a.nombre_sucursal ?? a.sucursal ?? '',
       id_sillon: a.id_sillon,
@@ -757,15 +819,17 @@ class DentalinkClient {
       dentalinkToken!,
       { query: { q: JSON.stringify({ id_sucursal: { eq: sucursalId } }) } },
     );
-    const list: DentalinkDentist[] = (data.data ?? [])
-      .filter((d) => d.habilitado === 1)
-      .map((d) => ({
-        id: String(d.id),
-        nombre: d.nombre,
-        apellido: d.apellidos,
-        especialidad: d.especialidad,
-        id_sucursal: d.id_sucursal,
-      }));
+    const list: DentalinkDentist[] = sortOwnerFirst(
+      (data.data ?? [])
+        .filter((d) => d.habilitado === 1)
+        .map((d) => ({
+          id: String(d.id),
+          nombre: prettifyDentistName(d.nombre),
+          apellido: prettifyDentistName(d.apellidos),
+          especialidad: d.especialidad,
+          id_sucursal: d.id_sucursal,
+        })),
+    );
     await setCached(cacheKey, list, CACHE_TTL_DENTISTS);
     return list;
   }
@@ -795,15 +859,17 @@ class DentalinkClient {
       }>;
     }>('/api/v1/dentistas', dentalinkToken!);
 
-    const list: DentalinkDentist[] = (data.data ?? [])
-      .filter((d) => d.habilitado === 1)
-      .map((d) => ({
-        id: String(d.id),
-        nombre: d.nombre,
-        apellido: d.apellidos,
-        especialidad: d.especialidad,
-        id_sucursal: d.id_sucursal,
-      }));
+    const list: DentalinkDentist[] = sortOwnerFirst(
+      (data.data ?? [])
+        .filter((d) => d.habilitado === 1)
+        .map((d) => ({
+          id: String(d.id),
+          nombre: prettifyDentistName(d.nombre),
+          apellido: prettifyDentistName(d.apellidos),
+          especialidad: d.especialidad,
+          id_sucursal: d.id_sucursal,
+        })),
+    );
     await setCached(cacheKey, list, CACHE_TTL_DENTISTS);
     return list;
   }
