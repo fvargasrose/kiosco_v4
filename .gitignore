@@ -93,3 +93,6 @@ apps/api/uploads/dentists/*
 !apps/api/migrations/*.sql
 credenciales_produccion.txt
 guia_produccion_v2.md
+
+# Export del frontend del kiosco para rediseño externo (snapshot, NO se commitea)
+docs/frond/
