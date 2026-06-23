@@ -416,8 +416,11 @@ curl https://<dominio>/api/health/ready | jq .
 
 Ver `produccion.md` para la guía completa de deploy en Hetzner.
 
-**Producción actual (2026-06-22):** Hetzner `5.78.110.152` → `https://sistema.2ways.us`,
-rama desplegada `main` @ `c072eca` (local, prod y origin alineados). El contenedor `dk-caddy` puede
+**Producción actual (2026-06-23):** Hetzner `5.78.110.152` → `https://sistema.2ways.us`,
+rama desplegada `main`, API @ `26c2d04` (nombres de odontólogos con tildes + dueño
+id=1 primero). Punto de rollback: tag `pre-seguridad3` (`ad0f1e3`) + imagen Docker
+`dk-api:prev`. Rollback = `git checkout pre-seguridad3` + rebuild `api`, o relanzar
+`dk-api:prev`. El contenedor `dk-caddy` puede
 aparecer `unhealthy`: es FALSO (su healthcheck interno hace `wget` a `localhost:80`
 que redirige 308→https y a veces falla por `fork: Resource temporarily unavailable`);
 Caddy sirve tráfico 200 normal.
